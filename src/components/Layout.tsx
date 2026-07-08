@@ -1,0 +1,113 @@
+import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
+import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond } from "lucide-react";
+import { useState, useEffect } from "react";
+import React from "react";
+import { cn } from "../lib/utils";
+import { getRestaurant } from "../services/db";
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  const { user, logout } = useAuth();
+  const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [restaurantName, setRestaurantName] = useState("Luxe CRM");
+
+  useEffect(() => {
+    if (user) {
+      getRestaurant(user.uid).then(rest => {
+        if (rest) {
+          setRestaurantName(rest.name);
+        }
+      });
+    }
+  }, [user]);
+
+  const navItems = [
+    { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard },
+    { name: "Agenda", href: "/appointments", icon: CalendarIcon },
+    { name: "Clients", href: "/customers", icon: Users },
+    { name: "Employés", href: "/employees", icon: Briefcase },
+    { name: "Prestations", href: "/services", icon: Scissors },
+    { name: "Fidélité", href: "/programs", icon: CreditCard },
+    { name: "Scanner", href: "/scanner", icon: ScanLine },
+    { name: "Rapports", href: "/reports", icon: BarChart3 },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 w-64 bg-gray-950 border-r border-gray-900 transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="h-16 flex items-center px-6 border-b border-gray-900 shrink-0">
+          <Diamond className="h-6 w-6 text-indigo-500 mr-2" />
+          <span className="text-xl font-bold tracking-widest text-indigo-500 uppercase truncate" title={restaurantName}>{restaurantName}</span>
+          <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden ml-auto">
+            <X className="h-6 w-6 text-gray-500" />
+          </button>
+        </div>
+
+        <nav className="p-4 space-y-1 flex-1 overflow-y-auto">
+          {navItems.map((item) => {
+            const isActive = location.pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={cn(
+                  "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200",
+                  isActive
+                    ? "bg-indigo-900/40 text-indigo-400 border border-indigo-900/50"
+                    : "text-gray-400 hover:bg-gray-900 hover:text-gray-200"
+                )}
+              >
+                <item.icon className={cn("mr-3 h-5 w-5", isActive ? "text-indigo-400" : "text-gray-500")} />
+                {item.name}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="shrink-0 p-4 border-t border-gray-900">
+          <div className="flex items-center mb-4 px-3 py-2 bg-gray-900 rounded-lg">
+            <div className="h-8 w-8 rounded-full bg-indigo-900 flex items-center justify-center text-indigo-400 font-bold shrink-0">
+              {user?.displayName?.[0] || "U"}
+            </div>
+            <div className="ml-3 overflow-hidden">
+              <p className="text-sm font-medium text-gray-200 truncate">{user?.displayName || "Utilisateur"}</p>
+              <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={logout}
+            className="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-400 rounded-lg hover:bg-gray-900 hover:text-red-400 transition-colors"
+          >
+            <LogOut className="mr-3 h-5 w-5" />
+            Déconnexion
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="lg:hidden bg-gray-950 border-b border-gray-900 h-16 flex items-center px-4 justify-between">
+          <div className="flex items-center">
+            <Diamond className="h-6 w-6 text-indigo-500 mr-2" />
+            <span className="text-xl font-bold tracking-widest text-indigo-500 uppercase truncate" title={restaurantName}>{restaurantName}</span>
+          </div>
+          <button onClick={() => setIsMobileMenuOpen(true)}>
+            <Menu className="h-6 w-6 text-gray-400" />
+          </button>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <div className="max-w-7xl mx-auto">
+            {children}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
