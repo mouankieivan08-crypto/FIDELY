@@ -3,15 +3,18 @@ import Layout from "../components/Layout";
 import Webcam from "react-webcam";
 import { Camera, CheckCircle, Clock, Briefcase, Plus, User, Tag, Key, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, getEmployees, createEmployee, Employee } from "../services/db";
+import { getRestaurant, getEmployees, createEmployee, clockIn, clockOut, Employee } from "../services/db";
 
 export default function Employees() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'list' | 'pointage'>('list');
   const [pointageStatus, setPointageStatus] = useState<'idle' | 'capturing' | 'verifying' | 'success'>('idle');
+  const [pointageError, setPointageError] = useState("");
+  const [pointageEmployeeId, setPointageEmployeeId] = useState<string>('');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [formError, setFormError] = useState("");
   const [restaurantId, setRestaurantId] = useState<number | null>(null);
   
   const [formData, setFormData] = useState({
@@ -48,6 +51,7 @@ export default function Employees() {
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!restaurantId) return;
+    setFormError("");
     try {
       const newEmp = await createEmployee(restaurantId, formData);
       setEmployees([...employees, newEmp]);
@@ -55,19 +59,43 @@ export default function Employees() {
       setFormData({ name: '', role: '', phone: '', avatarUrl: '' });
     } catch (error) {
       console.error("Error creating employee", error);
+      setFormError((error as Error).message || "Échec de la création de l'employé.");
     }
   };
 
-  const capture = useCallback(() => {
+  const getLocation = (): Promise<{ locationLat?: string; locationLng?: string }> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve({});
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ locationLat: String(pos.coords.latitude), locationLng: String(pos.coords.longitude) }),
+        () => resolve({}),
+        { timeout: 5000 }
+      );
+    });
+  };
+
+  const capture = useCallback(async (mode: 'in' | 'out') => {
+    setPointageError("");
+    if (!pointageEmployeeId) {
+      setPointageError("Sélectionnez d'abord votre nom dans la liste.");
+      return;
+    }
     setPointageStatus('verifying');
-    const imageSrc = webcamRef.current?.getScreenshot();
-    
-    // Simulate liveness detection & GPS & API call
-    setTimeout(() => {
+    try {
+      const selfieUrl = webcamRef.current?.getScreenshot();
+      const location = await getLocation();
+      if (mode === 'in') {
+        await clockIn(parseInt(pointageEmployeeId), { selfieUrl, ...location });
+      } else {
+        await clockOut(parseInt(pointageEmployeeId));
+      }
       setPointageStatus('success');
       setTimeout(() => setPointageStatus('idle'), 3000);
-    }, 2000);
-  }, [webcamRef]);
+    } catch (error) {
+      setPointageStatus('idle');
+      setPointageError((error as Error).message || "Échec du pointage.");
+    }
+  }, [webcamRef, pointageEmployeeId]);
 
   return (
     <Layout>
@@ -97,10 +125,28 @@ export default function Employees() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 text-center border-b border-gray-100">
               <h2 className="text-xl font-bold text-gray-900">Terminal de Pointage</h2>
-              <p className="text-sm text-gray-500 mt-1">Vérification de présence par reconnaissance faciale</p>
+              <p className="text-sm text-gray-500 mt-1">Photo et géolocalisation horodatées à chaque pointage</p>
             </div>
-            
+
             <div className="p-6 bg-gray-50 flex flex-col items-center">
+              <div className="w-full mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Votre nom</label>
+                <select
+                  value={pointageEmployeeId}
+                  onChange={(e) => { setPointageEmployeeId(e.target.value); setPointageError(""); }}
+                  className="w-full border-gray-300 rounded-lg shadow-sm"
+                >
+                  <option value="">Sélectionner...</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              </div>
+
+              {pointageError && (
+                <div className="w-full mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm" role="alert">
+                  {pointageError}
+                </div>
+              )}
+
               {pointageStatus === 'idle' || pointageStatus === 'capturing' || pointageStatus === 'verifying' ? (
                 <div className="relative rounded-xl overflow-hidden shadow-inner border-2 border-indigo-100 w-full max-w-[300px] aspect-[3/4] bg-black">
                   {/* @ts-ignore */}
@@ -117,8 +163,8 @@ export default function Employees() {
                     <div className="absolute inset-0 bg-indigo-500/80 z-10 flex items-center justify-center backdrop-blur-sm">
                       <div className="text-white font-bold flex flex-col items-center p-4 text-center">
                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white mb-4"></div>
-                        <p className="text-sm">Analyse biométrique...</p>
-                        <p className="text-xs font-normal opacity-80 mt-1">Vérification de présence et détection de mouvement (anti-fraude)</p>
+                        <p className="text-sm">Enregistrement en cours...</p>
+                        <p className="text-xs font-normal opacity-80 mt-1">Capture de la photo et de la position</p>
                       </div>
                     </div>
                   )}
@@ -133,7 +179,7 @@ export default function Employees() {
 
               <div className="mt-8 w-full space-y-3">
                 <button
-                  onClick={capture}
+                  onClick={() => capture('in')}
                   disabled={pointageStatus !== 'idle'}
                   className="w-full flex items-center justify-center px-4 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
                 >
@@ -141,7 +187,7 @@ export default function Employees() {
                   Pointer mon arrivée
                 </button>
                 <button
-                  onClick={capture}
+                  onClick={() => capture('out')}
                   disabled={pointageStatus !== 'idle'}
                   className="w-full flex items-center justify-center px-4 py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
                 >
@@ -161,8 +207,8 @@ export default function Employees() {
       {activeTab === 'list' && (
         <>
           <div className="flex justify-end mb-4">
-            <button 
-              onClick={() => setShowAddModal(true)}
+            <button
+              onClick={() => { setFormError(""); setShowAddModal(true); }}
               className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -177,8 +223,8 @@ export default function Employees() {
               <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900">Aucun employé</h3>
               <p className="text-gray-500 mt-1">Ajoutez votre premier collaborateur pour commencer.</p>
-              <button 
-                onClick={() => setShowAddModal(true)}
+              <button
+                onClick={() => { setFormError(""); setShowAddModal(true); }}
                 className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
               >
                 Ajouter un employé
@@ -244,6 +290,11 @@ export default function Employees() {
             
             <form onSubmit={handleAddEmployee} className="p-6">
               <div className="space-y-4">
+                {formError && (
+                  <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm" role="alert">
+                    {formError}
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Nom complet</label>
                   <div className="relative">

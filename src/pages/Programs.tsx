@@ -9,6 +9,7 @@ export default function Programs() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [formError, setFormError] = useState("");
   const [newProgram, setNewProgram] = useState({
     name: "",
     visitsRequired: 5,
@@ -37,6 +38,7 @@ export default function Programs() {
 
   const handleCreateProgram = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
     try {
       const rest = await getRestaurant(user!.uid);
       if (rest) {
@@ -47,6 +49,7 @@ export default function Programs() {
       }
     } catch (error) {
       console.error("Error creating program:", error);
+      setFormError((error as Error).message || "Échec de la création du programme.");
     }
   };
 
@@ -55,7 +58,7 @@ export default function Programs() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Programmes de fidélité</h1>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => { setFormError(""); setShowModal(true); }}
           className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
         >
           <Plus className="h-5 w-5 mr-2" />
@@ -95,6 +98,11 @@ export default function Programs() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-md w-full p-6">
             <h2 className="text-xl font-bold mb-4">Créer un nouveau programme</h2>
+            {formError && (
+              <div className="mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm" role="alert">
+                {formError}
+              </div>
+            )}
             <form onSubmit={handleCreateProgram} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Nom du programme</label>

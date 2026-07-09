@@ -1,28 +1,48 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, createRestaurant, getPrograms, getCustomers, getEmployees, getAppointments } from "../services/db";
+import { getRestaurant, createRestaurant, getPrograms, getCustomers, getEmployees, getAppointments, getServices } from "../services/db";
 import Layout from "../components/Layout";
 import StatCard from "../components/StatCard";
 import { Users, CreditCard, Award, TrendingUp, Store, Clock, CalendarCheck, Package, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
-const dataSales = [
-  { name: 'Lun', total: 0 },
-  { name: 'Mar', total: 0 },
-  { name: 'Mer', total: 0 },
-  { name: 'Jeu', total: 0 },
-  { name: 'Ven', total: 0 },
-  { name: 'Sam', total: 0 },
-  { name: 'Dim', total: 0 },
-];
+const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
-const dataClients = [
-  { name: 'S1', nouveaux: 0, fideles: 0 },
-  { name: 'S2', nouveaux: 0, fideles: 0 },
-  { name: 'S3', nouveaux: 0, fideles: 0 },
-  { name: 'S4', nouveaux: 0, fideles: 0 },
-];
+function buildSalesData(appointments: any[], services: any[]) {
+  const priceByService = new Map<number, number>(services.map((s: any) => [s.id, s.price]));
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (6 - i));
+    return d;
+  });
+  return days.map((day) => {
+    const total = appointments
+      .filter((a) => a.status === 'completed' && new Date(a.startTime).toDateString() === day.toDateString())
+      .reduce((sum, a) => sum + (priceByService.get(a.serviceId) || 0), 0);
+    return { name: DAY_LABELS[day.getDay()], total: total / 100 };
+  });
+}
+
+function buildClientsData(customers: any[]) {
+  const weeks = Array.from({ length: 4 }, (_, i) => {
+    const end = new Date();
+    end.setDate(end.getDate() - (3 - i) * 7);
+    const start = new Date(end);
+    start.setDate(end.getDate() - 6);
+    return { name: `S${i + 1}`, start, end };
+  });
+  return weeks.map(({ name, start, end }) => {
+    const inWeek = customers.filter((c: any) => {
+      const created = new Date(c.createdAt);
+      return created >= start && created <= end;
+    });
+    const nouveaux = inWeek.length;
+    const fideles = inWeek.filter((c: any) => c.visits > 0).length;
+    return { name, nouveaux: nouveaux - fideles > 0 ? nouveaux - fideles : nouveaux, fideles };
+  });
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -41,6 +61,8 @@ export default function Dashboard() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [newRestaurantName, setNewRestaurantName] = useState("");
   const [filteredAppointments, setFilteredAppointments] = useState<any[]>([]);
+  const [dataSales, setDataSales] = useState<{ name: string; total: number }[]>([]);
+  const [dataClients, setDataClients] = useState<{ name: string; nouveaux: number; fideles: number }[]>([]);
 
   useEffect(() => {
     if (user) {
@@ -89,10 +111,13 @@ export default function Dashboard() {
         const customers = await getCustomers(rest.id);
         const employees = await getEmployees(rest.id);
         const appointments = await getAppointments(rest.id);
-        
+        const services = await getServices(rest.id);
+
         setEmployeesData(employees);
         setAppointmentsData(appointments);
-        
+        setDataSales(buildSalesData(appointments, services));
+        setDataClients(buildClientsData(customers));
+
         setStats({
           customers: customers.length,
           visits: customers.reduce((acc: number, curr: any) => acc + (curr.visits || 0), 0),
@@ -281,8 +306,29 @@ export default function Dashboard() {
             <Link to="/appointments" className="text-sm font-medium text-indigo-600 hover:text-indigo-700">Voir tout</Link>
           </div>
           <div className="divide-y divide-gray-50">
-            {/* TODO: Load real appointments when available */}
-            {[]}
+            {filteredAppointments.length === 0 ? (
+              <div className="p-6 text-center text-sm text-gray-500">Aucun rendez-vous pour cette période.</div>
+            ) : (
+              filteredAppointments
+                .slice()
+                .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+                .slice(0, 5)
+                .map((apt, i) => (
+                  <div key={i} className="px-6 py-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {new Date(apt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      apt.status === 'completed' ? 'bg-gray-100 text-gray-600' :
+                      apt.status === 'in_progress' ? 'bg-indigo-50 text-indigo-700' : 'bg-green-50 text-green-700'
+                    }`}>
+                      {apt.status === 'scheduled' ? 'À venir' : apt.status}
+                    </span>
+                  </div>
+                ))
+            )}
           </div>
         </div>
 

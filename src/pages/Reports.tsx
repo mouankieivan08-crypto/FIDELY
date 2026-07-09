@@ -1,19 +1,39 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { Download, FileText, TrendingUp, Users, CreditCard, X } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useAuth } from "../contexts/AuthContext";
+import { getRestaurant, getAppointments, getServices } from "../services/db";
 
-const data = [
-  { name: 'Jan', ca: 0 },
-  { name: 'Fév', ca: 0 },
-  { name: 'Mar', ca: 0 },
-  { name: 'Avr', ca: 0 },
-  { name: 'Mai', ca: 0 },
-  { name: 'Juin', ca: 0 },
-];
+const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 
 export default function Reports() {
+  const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
+  const [data, setData] = useState(MONTH_LABELS.map(name => ({ name, ca: 0 })));
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const rest = await getRestaurant(user.uid);
+        if (!rest) return;
+        const [appointments, services] = await Promise.all([getAppointments(rest.id), getServices(rest.id)]);
+        const priceByService = new Map<number, number>(services.map((s: any) => [s.id, s.price]));
+        const currentYear = new Date().getFullYear();
+        const revenueByMonth = new Array(12).fill(0);
+        appointments
+          .filter((a: any) => a.status === 'completed' && new Date(a.startTime).getFullYear() === currentYear)
+          .forEach((a: any) => {
+            const month = new Date(a.startTime).getMonth();
+            revenueByMonth[month] += (priceByService.get(a.serviceId) || 0) / 100;
+          });
+        setData(MONTH_LABELS.map((name, i) => ({ name, ca: revenueByMonth[i] })));
+      } catch (error) {
+        console.error("Error loading reports data:", error);
+      }
+    })();
+  }, [user]);
 
   return (
     <Layout>
@@ -72,7 +92,7 @@ export default function Reports() {
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#a3a3a3', fontSize: 12}} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{fill: '#a3a3a3', fontSize: 12}} />
               <Tooltip cursor={{fill: '#f9fafb'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-              <Bar dataKey="ca" name="CA (€)" fill="#d4af37" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="ca" name="CA (FCFA)" fill="#d4af37" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

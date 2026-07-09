@@ -7,6 +7,7 @@ import { getRestaurant, getServices, createService } from "../services/db";
 export default function Services() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
+  const [formError, setFormError] = useState("");
   const categories = ["Coiffure", "Esthétique", "Massages", "Onglerie"];
   const [servicesList, setServicesList] = useState<any[]>([]);
   const [restaurantId, setRestaurantId] = useState<number | null>(null);
@@ -40,6 +41,7 @@ export default function Services() {
   const handleCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!restaurantId) return;
+    setFormError("");
     try {
       const newSvc = await createService(restaurantId, {
         name: formData.name,
@@ -52,6 +54,7 @@ export default function Services() {
       setFormData({ name: '', category: categories[0], price: '', duration: '' });
     } catch (error) {
       console.error("Error creating service:", error);
+      setFormError((error as Error).message || "Échec de la création de la prestation.");
     }
   };
 
@@ -62,8 +65,8 @@ export default function Services() {
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Prestations</h1>
           <p className="text-sm text-gray-500 mt-1">Catalogue de vos services et tarifs</p>
         </div>
-        <button 
-          onClick={() => setShowModal(true)}
+        <button
+          onClick={() => { setFormError(""); setShowModal(true); }}
           className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
         >
           <Plus className="h-4 w-4 mr-2" /> Nouvelle Prestation
@@ -144,6 +147,11 @@ export default function Services() {
             </div>
             
             <form onSubmit={handleCreateService} className="p-6 space-y-4">
+              {formError && (
+                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm" role="alert">
+                  {formError}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
                 <input type="text" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border-gray-300 rounded-lg shadow-sm" />

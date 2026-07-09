@@ -152,6 +152,20 @@ export const createService = async (restaurantId: number, data: any) => {
   });
 };
 
+export const clockIn = async (employeeId: number, data: { selfieUrl?: string; locationLat?: string; locationLng?: string }) => {
+  return fetchApi(`/employees/${employeeId}/clock-in`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+};
+
+export const clockOut = async (employeeId: number) => {
+  return fetchApi(`/employees/${employeeId}/clock-out`, {
+    method: 'POST',
+  });
+};
+
 export const getAppointments = async (restaurantId: number) => {
   return fetchApi(`/restaurants/${restaurantId}/appointments`);
 };

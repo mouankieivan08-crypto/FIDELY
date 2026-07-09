@@ -7,6 +7,7 @@ import { getRestaurant, getAppointments, getEmployees, getCustomers, getServices
 export default function Appointments() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
+  const [formError, setFormError] = useState("");
   const [appointments, setAppointments] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -51,6 +52,7 @@ export default function Appointments() {
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!restaurantId) return;
+    setFormError("");
     try {
       const newApt = await createAppointment(restaurantId, {
         customerId: formData.customerId,
@@ -65,12 +67,13 @@ export default function Appointments() {
       setFormData({ customerId: '', employeeId: '', serviceId: '', startTime: '', endTime: '' });
     } catch (error) {
       console.error("Error creating appointment:", error);
+      setFormError((error as Error).message || "Échec de la création du rendez-vous.");
     }
   };
 
   const getCustomerName = (id: string) => {
     const c = customers.find(c => c.id === id);
-    return c ? `${c.firstName} ${c.lastName}` : 'Inconnu';
+    return c ? c.name : 'Inconnu';
   };
 
   const getEmployeeName = (id: number) => {
@@ -90,8 +93,8 @@ export default function Appointments() {
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Agenda</h1>
           <p className="text-sm text-gray-500 mt-1">Gérez vos rendez-vous et plannings</p>
         </div>
-        <button 
-          onClick={() => setShowModal(true)}
+        <button
+          onClick={() => { setFormError(""); setShowModal(true); }}
           className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
         >
           Nouveau Rendez-vous
@@ -157,11 +160,16 @@ export default function Appointments() {
             </div>
             
             <form onSubmit={handleCreateAppointment} className="p-6 space-y-4">
+              {formError && (
+                <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm" role="alert">
+                  {formError}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Client</label>
                 <select required value={formData.customerId} onChange={e => setFormData({...formData, customerId: e.target.value})} className="w-full border-gray-300 rounded-lg shadow-sm">
                   <option value="">Sélectionner un client...</option>
-                  {customers.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
+                  {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               

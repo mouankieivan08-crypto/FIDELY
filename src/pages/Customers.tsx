@@ -11,6 +11,7 @@ export default function Customers() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [formError, setFormError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [newCustomer, setNewCustomer] = useState({
     name: "",
@@ -47,6 +48,7 @@ export default function Customers() {
 
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
     try {
       const rest = await getRestaurant(user!.uid);
       if (rest) {
@@ -61,6 +63,7 @@ export default function Customers() {
       }
     } catch (error) {
       console.error("Error creating customer:", error);
+      setFormError((error as Error).message || "Échec de la création du client.");
     }
   };
 
@@ -74,7 +77,7 @@ export default function Customers() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-gray-900">Clients</h1>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => { setFormError(""); setShowModal(true); }}
           className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors w-full sm:w-auto justify-center shadow-sm"
         >
           <Plus className="h-5 w-5 mr-2" />
@@ -168,6 +171,11 @@ export default function Customers() {
               </div>
             ) : (
               <form onSubmit={handleCreateCustomer} className="space-y-5">
+                {formError && (
+                  <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm" role="alert">
+                    {formError}
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Nom complet</label>
                   <input
