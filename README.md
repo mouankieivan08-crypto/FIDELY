@@ -9,14 +9,19 @@ pointage.
 
 - Frontend : React 19 + Vite + TypeScript + Tailwind
 - Backend : Express (`server.ts`), servi par le même processus que Vite en dev
-- Base de données : Postgres via Drizzle ORM (`src/db`)
-- Authentification : Firebase Auth (connexion Google), vérifiée côté serveur
-  avec `firebase-admin`
+- Base de données : Supabase (Postgres), via `@supabase/supabase-js`
+  (`src/lib/supabase-server.ts`) — le backend utilise la clé secrète et
+  contourne Row Level Security ; RLS est activé sans policy sur chaque table
+  pour bloquer tout accès direct via la clé publique
+- Authentification : Supabase Auth (connexion Google), le token est vérifié
+  côté serveur dans `src/middleware/auth.ts`
 
 ## Prérequis
 
 - Node.js 20+
-- Une base Postgres accessible
+- Un projet Supabase, avec le provider Google activé dans
+  **Authentication > Providers** (nécessite un Client ID/Secret OAuth créé
+  dans Google Cloud Console)
 
 ## Installation
 
@@ -24,17 +29,15 @@ pointage.
    ```
    npm install
    ```
-2. Copier `.env.example` vers `.env` et renseigner :
-   - les variables `SQL_*` (connexion à votre base Postgres)
-   - les variables `VITE_FIREBASE_*` (configuration de votre projet Firebase),
-     ou copier `firebase-applet-config.example.json` vers
-     `firebase-applet-config.json` et le remplir — ce fichier ne doit **jamais**
-     être commité avec de vraies valeurs (il est dans `.gitignore`).
-3. Pousser le schéma vers la base :
-   ```
-   npm run db:push
-   ```
-4. Lancer l'app :
+2. Créer les tables : dans le dashboard Supabase, ouvrir **SQL Editor > New
+   query**, coller le contenu de [`supabase/schema.sql`](supabase/schema.sql)
+   et l'exécuter (une seule fois).
+3. Copier `.env.example` vers `.env` et renseigner les 4 variables Supabase
+   (Project Settings > API dans Supabase — la clé **secrète** ne doit jamais
+   être exposée au client, contrairement à la clé publique).
+4. Dans Supabase, **Authentication > URL Configuration**, ajouter
+   `http://localhost:3000/dashboard` aux Redirect URLs autorisées.
+5. Lancer l'app :
    ```
    npm run dev
    ```
@@ -45,4 +48,3 @@ pointage.
 - `npm run build` — build de production (client + serveur)
 - `npm run start` — lance le build de production
 - `npm run lint` — vérification TypeScript (`tsc --noEmit`)
-- `npm run db:push` — applique le schéma Drizzle à la base

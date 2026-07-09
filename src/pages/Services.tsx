@@ -27,7 +27,7 @@ export default function Services() {
 
   const fetchData = async () => {
     try {
-      const rest = await getBusiness(user!.uid);
+      const rest = await getBusiness(user!.id);
       if (rest) {
         setBusinessId(rest.id);
         const svcs = await getServices(rest.id);

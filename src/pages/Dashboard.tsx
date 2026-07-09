@@ -104,7 +104,7 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const rest = await getBusiness(user!.uid);
+      const rest = await getBusiness(user!.id);
       setBusiness(rest);
       if (rest) {
         const programs = await getPrograms(rest.id);
@@ -137,7 +137,7 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newBusinessName.trim()) return;
     try {
-      await createBusiness(user!.uid, newBusinessName);
+      await createBusiness(user!.id, newBusinessName);
       await fetchData();
     } catch (error) {
       console.error("Error creating business:", error);

@@ -1,5 +1,4 @@
-import { Timestamp } from "firebase/firestore"; // We might want to remove this type completely if we migrate fully away from firestore types
-import { auth } from "../lib/firebase";
+import { supabase } from "../lib/supabase";
 
 export interface Business {
   id: number;
@@ -48,9 +47,10 @@ export interface Employee {
 }
 
 const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
-  if (!auth.currentUser) throw new Error("Not authenticated");
-  const token = await auth.currentUser.getIdToken();
-  
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) throw new Error("Not authenticated");
+  const token = data.session.access_token;
+
   const headers = new Headers(options.headers);
   headers.set('Authorization', `Bearer ${token}`);
   

@@ -25,7 +25,7 @@ export default function Scanner() {
         return;
       }
 
-      const result = await recordVisit(decodedText, customer.businessId, user!.uid);
+      const result = await recordVisit(decodedText, customer.businessId, user!.id);
       
       setScanResult({
         status: "success",

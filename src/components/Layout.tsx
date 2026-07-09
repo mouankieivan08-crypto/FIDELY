@@ -14,13 +14,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      getBusiness(user.uid).then(rest => {
+      getBusiness(user.id).then(rest => {
         if (rest) {
           setBusinessName(rest.name);
         }
       });
     }
   }, [user]);
+
+  const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || "Utilisateur";
 
   const navItems = [
     { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard },
@@ -73,10 +75,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="shrink-0 p-4 border-t border-gray-900">
           <div className="flex items-center mb-4 px-3 py-2 bg-gray-900 rounded-lg">
             <div className="h-8 w-8 rounded-full bg-indigo-900 flex items-center justify-center text-indigo-400 font-bold shrink-0">
-              {user?.displayName?.[0] || "U"}
+              {displayName[0]?.toUpperCase() || "U"}
             </div>
             <div className="ml-3 overflow-hidden">
-              <p className="text-sm font-medium text-gray-200 truncate">{user?.displayName || "Utilisateur"}</p>
+              <p className="text-sm font-medium text-gray-200 truncate">{displayName}</p>
               <p className="text-xs text-gray-500 truncate">{user?.email}</p>
             </div>
           </div>

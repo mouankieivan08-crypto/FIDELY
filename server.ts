@@ -1,12 +1,17 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { z } from "zod";
-import { requireAuth, AuthRequest } from "./src/middleware/auth.ts";
-import { db } from "./src/db/index.ts";
-import { users, businesses, programs, customers, visits, employees, services, appointments, timeLogs } from "./src/db/schema.ts";
-import { eq, and, gt, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { requireAuth, AuthRequest } from "./src/middleware/auth.ts";
+import { supabase } from "./src/lib/supabase-server.ts";
+import { toSnakeCase, toCamelCase, toCamelCaseArray } from "./src/lib/caseConvert.ts";
+
+function unwrap<T>({ data, error }: { data: T | null; error: { message: string } | null }): T {
+  if (error) throw new Error(error.message);
+  return data as T;
+}
 
 async function startServer() {
   const app = express();
@@ -14,11 +19,10 @@ async function startServer() {
 
   app.use(express.json({ limit: "5mb" })); // selfies are base64-encoded images
 
-  // Ensure user exists in SQL DB helper
   const syncUser = async (uid: string, email?: string) => {
-    const existing = await db.select().from(users).where(eq(users.uid, uid));
-    if (existing.length === 0) {
-      await db.insert(users).values({ uid, email: email || '' });
+    const existing = unwrap(await supabase.from("users").select("id").eq("uid", uid).limit(1));
+    if (!existing || existing.length === 0) {
+      unwrap(await supabase.from("users").insert({ uid, email: email || "" }));
     }
   };
 
@@ -28,16 +32,17 @@ async function startServer() {
       res.status(400).json({ error: "Invalid business id" });
       return null;
     }
-    const rows = await db.select().from(businesses).where(eq(businesses.id, businessId));
-    if (rows.length === 0) {
+    const rows = unwrap(await supabase.from("businesses").select("*").eq("id", businessId).limit(1));
+    if (!rows || rows.length === 0) {
       res.status(404).json({ error: "Business not found" });
       return null;
     }
-    if (rows[0].ownerUid !== req.user!.uid) {
+    const business = toCamelCase<{ ownerUid: string }>(rows[0]);
+    if (business.ownerUid !== req.user!.uid) {
       res.status(403).json({ error: "Forbidden" });
       return null;
     }
-    return rows[0];
+    return business;
   };
 
   const requireOwnedBusiness = async (
@@ -45,15 +50,15 @@ async function startServer() {
     res: express.Response,
     next: express.NextFunction
   ) => {
-    const restId = parseInt(req.params.id);
-    const rest = await loadOwnedBusiness(req, res, restId);
-    if (!rest) return; // response already sent
-    (req as any).business = rest;
+    const businessId = parseInt(req.params.id);
+    const business = await loadOwnedBusiness(req, res, businessId);
+    if (!business) return; // response already sent
+    (req as any).business = business;
     next();
   };
 
   const handleZodError = (res: express.Response, error: z.ZodError) => {
-    res.status(400).json({ error: error.issues.map(i => i.message).join(", ") });
+    res.status(400).json({ error: error.issues.map((i) => i.message).join(", ") });
   };
 
   app.get("/api/health", (req, res) => {
@@ -64,8 +69,8 @@ async function startServer() {
   app.get("/api/business", requireAuth, async (req: AuthRequest, res) => {
     try {
       await syncUser(req.user!.uid, req.user!.email);
-      const rest = await db.select().from(businesses).where(eq(businesses.ownerUid, req.user!.uid));
-      res.json(rest.length > 0 ? rest[0] : null);
+      const rows = unwrap(await supabase.from("businesses").select("*").eq("owner_uid", req.user!.uid).limit(1));
+      res.json(rows && rows.length > 0 ? toCamelCase(rows[0]) : null);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -78,8 +83,10 @@ async function startServer() {
       const parsed = createBusinessSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       await syncUser(req.user!.uid, req.user!.email);
-      const result = await db.insert(businesses).values({ name: parsed.data.name, ownerUid: req.user!.uid }).returning();
-      res.json(result[0]);
+      const result = unwrap(
+        await supabase.from("businesses").insert({ name: parsed.data.name, owner_uid: req.user!.uid }).select().single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -87,8 +94,8 @@ async function startServer() {
 
   app.get("/api/businesses/:id/programs", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const progs = await db.select().from(programs).where(eq(programs.businessId, parseInt(req.params.id)));
-      res.json(progs);
+      const rows = unwrap(await supabase.from("programs").select("*").eq("business_id", parseInt(req.params.id)));
+      res.json(toCamelCaseArray(rows || []));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -104,13 +111,19 @@ async function startServer() {
     try {
       const parsed = createProgramSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
-      const result = await db.insert(programs).values({
-        businessId: parseInt(req.params.id),
-        name: parsed.data.name,
-        visitsRequired: parsed.data.visitsRequired,
-        rewardDescription: parsed.data.rewardDescription,
-      }).returning();
-      res.json(result[0]);
+      const result = unwrap(
+        await supabase
+          .from("programs")
+          .insert({
+            business_id: parseInt(req.params.id),
+            name: parsed.data.name,
+            visits_required: parsed.data.visitsRequired,
+            reward_description: parsed.data.rewardDescription,
+          })
+          .select()
+          .single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -118,8 +131,8 @@ async function startServer() {
 
   app.get("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const custs = await db.select().from(customers).where(eq(customers.businessId, parseInt(req.params.id)));
-      res.json(custs);
+      const rows = unwrap(await supabase.from("customers").select("*").eq("business_id", parseInt(req.params.id)));
+      res.json(toCamelCaseArray(rows || []));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -135,24 +148,30 @@ async function startServer() {
     try {
       const parsed = createCustomerSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
-      const restId = parseInt(req.params.id);
+      const businessId = parseInt(req.params.id);
 
       // programId must belong to this business
-      const prog = await db.select().from(programs).where(
-        and(eq(programs.id, parsed.data.programId), eq(programs.businessId, restId))
+      const prog = unwrap(
+        await supabase.from("programs").select("id").eq("id", parsed.data.programId).eq("business_id", businessId)
       );
-      if (prog.length === 0) return res.status(400).json({ error: "Invalid program" });
+      if (!prog || prog.length === 0) return res.status(400).json({ error: "Invalid program" });
 
       // Cryptographically random, unguessable card id (public card URLs rely on this being unenumerable)
       const id = "CARD-" + randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
-      const result = await db.insert(customers).values({
-        id,
-        businessId: restId,
-        name: parsed.data.name,
-        phone: parsed.data.phone,
-        programId: parsed.data.programId,
-      }).returning();
-      res.json(result[0]);
+      const result = unwrap(
+        await supabase
+          .from("customers")
+          .insert({
+            id,
+            business_id: businessId,
+            name: parsed.data.name,
+            phone: parsed.data.phone,
+            program_id: parsed.data.programId,
+          })
+          .select()
+          .single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -161,9 +180,9 @@ async function startServer() {
   // Public: powers the shareable /card/:id loyalty card page (no login for customers).
   app.get("/api/customers/:id", async (req, res) => {
     try {
-      const cust = await db.select().from(customers).where(eq(customers.id, req.params.id));
-      if (cust.length === 0) return res.status(404).json({ error: "Not found" });
-      res.json(cust[0]);
+      const rows = unwrap(await supabase.from("customers").select("*").eq("id", req.params.id).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json(toCamelCase(rows[0]));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -173,33 +192,35 @@ async function startServer() {
     try {
       const customerId = req.params.id;
 
-      const custs = await db.select().from(customers).where(eq(customers.id, customerId));
-      if (custs.length === 0) return res.status(404).json({ error: "Customer not found" });
-      const customer = custs[0];
+      const custs = unwrap(await supabase.from("customers").select("*").eq("id", customerId).limit(1));
+      if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
+      const customer = toCamelCase<{ businessId: number; programId: number; visits: number; rewardStatus: string }>(custs[0]);
 
-      const rest = await loadOwnedBusiness(req, res, customer.businessId);
-      if (!rest) return; // response already sent
+      const business = await loadOwnedBusiness(req, res, customer.businessId);
+      if (!business) return; // response already sent
 
       // Check double scan
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const recentVisits = await db.select().from(visits).where(
-        and(eq(visits.customerId, customerId), gt(visits.date, today))
+      const recentVisits = unwrap(
+        await supabase.from("visits").select("id").eq("customer_id", customerId).gt("date", today.toISOString())
       );
-      if (recentVisits.length > 0) {
+      if (recentVisits && recentVisits.length > 0) {
         return res.status(400).json({ error: "Customer already visited today." });
       }
 
-      const progs = await db.select().from(programs).where(eq(programs.id, customer.programId));
-      if (progs.length === 0) return res.status(404).json({ error: "Program not found" });
-      const program = progs[0];
+      const progs = unwrap(await supabase.from("programs").select("*").eq("id", customer.programId).limit(1));
+      if (!progs || progs.length === 0) return res.status(404).json({ error: "Program not found" });
+      const program = toCamelCase<{ visitsRequired: number }>(progs[0]);
 
       // add visit
-      await db.insert(visits).values({
-        customerId,
-        businessId: customer.businessId,
-        validatedBy: req.user!.uid,
-      });
+      unwrap(
+        await supabase.from("visits").insert({
+          customer_id: customerId,
+          business_id: customer.businessId,
+          validated_by: req.user!.uid,
+        })
+      );
 
       const newVisits = customer.visits + 1;
       let newRewardStatus = customer.rewardStatus;
@@ -207,7 +228,9 @@ async function startServer() {
         newRewardStatus = "available";
       }
 
-      await db.update(customers).set({ visits: newVisits, rewardStatus: newRewardStatus }).where(eq(customers.id, customerId));
+      unwrap(
+        await supabase.from("customers").update({ visits: newVisits, reward_status: newRewardStatus }).eq("id", customerId)
+      );
 
       res.json({ newVisits, newRewardStatus });
     } catch (error) {
@@ -218,8 +241,8 @@ async function startServer() {
   // Public: powers the shareable /card/:id loyalty card page (no login for customers).
   app.get("/api/customers/:id/visits", async (req, res) => {
     try {
-      const v = await db.select().from(visits).where(eq(visits.customerId, req.params.id));
-      res.json(v);
+      const rows = unwrap(await supabase.from("visits").select("*").eq("customer_id", req.params.id));
+      res.json(toCamelCaseArray(rows || []));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -227,13 +250,14 @@ async function startServer() {
 
   app.post("/api/customers/:id/redeem", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const custs = await db.select().from(customers).where(eq(customers.id, req.params.id));
-      if (custs.length === 0) return res.status(404).json({ error: "Customer not found" });
+      const custs = unwrap(await supabase.from("customers").select("*").eq("id", req.params.id).limit(1));
+      if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
+      const customer = toCamelCase<{ businessId: number }>(custs[0]);
 
-      const rest = await loadOwnedBusiness(req, res, custs[0].businessId);
-      if (!rest) return; // response already sent
+      const business = await loadOwnedBusiness(req, res, customer.businessId);
+      if (!business) return; // response already sent
 
-      await db.update(customers).set({ visits: 0, rewardStatus: "pending" }).where(eq(customers.id, req.params.id));
+      unwrap(await supabase.from("customers").update({ visits: 0, reward_status: "pending" }).eq("id", req.params.id));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -242,9 +266,8 @@ async function startServer() {
 
   app.get("/api/businesses/:id/employees", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const restId = parseInt(req.params.id);
-      const e = await db.select().from(employees).where(eq(employees.businessId, restId));
-      res.json(e);
+      const rows = unwrap(await supabase.from("employees").select("*").eq("business_id", parseInt(req.params.id)));
+      res.json(toCamelCaseArray(rows || []));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -261,15 +284,20 @@ async function startServer() {
     try {
       const parsed = createEmployeeSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
-      const restId = parseInt(req.params.id);
-      const newEmp = await db.insert(employees).values({
-        businessId: restId,
-        name: parsed.data.name,
-        role: parsed.data.role,
-        phone: parsed.data.phone,
-        avatarUrl: parsed.data.avatarUrl,
-      }).returning();
-      res.json(newEmp[0]);
+      const result = unwrap(
+        await supabase
+          .from("employees")
+          .insert({
+            business_id: parseInt(req.params.id),
+            name: parsed.data.name,
+            role: parsed.data.role,
+            phone: parsed.data.phone,
+            avatar_url: parsed.data.avatarUrl,
+          })
+          .select()
+          .single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -277,9 +305,8 @@ async function startServer() {
 
   app.get("/api/businesses/:id/services", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const restId = parseInt(req.params.id);
-      const svcs = await db.select().from(services).where(eq(services.businessId, restId));
-      res.json(svcs);
+      const rows = unwrap(await supabase.from("services").select("*").eq("business_id", parseInt(req.params.id)));
+      res.json(toCamelCaseArray(rows || []));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -297,16 +324,21 @@ async function startServer() {
     try {
       const parsed = createServiceSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
-      const restId = parseInt(req.params.id);
-      const newSvc = await db.insert(services).values({
-        businessId: restId,
-        name: parsed.data.name,
-        category: parsed.data.category,
-        price: parsed.data.price,
-        duration: parsed.data.duration,
-        description: parsed.data.description,
-      }).returning();
-      res.json(newSvc[0]);
+      const result = unwrap(
+        await supabase
+          .from("services")
+          .insert({
+            business_id: parseInt(req.params.id),
+            name: parsed.data.name,
+            category: parsed.data.category,
+            price: parsed.data.price,
+            duration: parsed.data.duration,
+            description: parsed.data.description,
+          })
+          .select()
+          .single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -314,9 +346,8 @@ async function startServer() {
 
   app.get("/api/businesses/:id/appointments", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const restId = parseInt(req.params.id);
-      const apts = await db.select().from(appointments).where(eq(appointments.businessId, restId));
-      res.json(apts);
+      const rows = unwrap(await supabase.from("appointments").select("*").eq("business_id", parseInt(req.params.id)));
+      res.json(toCamelCaseArray(rows || []));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -338,17 +369,24 @@ async function startServer() {
       if (parsed.data.endTime <= parsed.data.startTime) {
         return res.status(400).json({ error: "endTime must be after startTime" });
       }
-      const restId = parseInt(req.params.id);
-      const newApt = await db.insert(appointments).values({
-        businessId: restId,
-        customerId: parsed.data.customerId,
-        employeeId: parsed.data.employeeId,
-        serviceId: parsed.data.serviceId,
-        startTime: parsed.data.startTime,
-        endTime: parsed.data.endTime,
-        status: parsed.data.status ?? "scheduled",
-      }).returning();
-      res.json(newApt[0]);
+      const result = unwrap(
+        await supabase
+          .from("appointments")
+          .insert(
+            toSnakeCase({
+              businessId: parseInt(req.params.id),
+              customerId: parsed.data.customerId,
+              employeeId: parsed.data.employeeId,
+              serviceId: parsed.data.serviceId,
+              startTime: parsed.data.startTime,
+              endTime: parsed.data.endTime,
+              status: parsed.data.status ?? "scheduled",
+            })
+          )
+          .select()
+          .single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -365,30 +403,39 @@ async function startServer() {
   app.post("/api/employees/:id/clock-in", requireAuth, async (req: AuthRequest, res) => {
     try {
       const empId = parseInt(req.params.id);
-      const emp = await db.select().from(employees).where(eq(employees.id, empId));
-      if (emp.length === 0) return res.status(404).json({ error: "Employee not found" });
+      const emp = unwrap(await supabase.from("employees").select("*").eq("id", empId).limit(1));
+      if (!emp || emp.length === 0) return res.status(404).json({ error: "Employee not found" });
+      const employee = toCamelCase<{ businessId: number }>(emp[0]);
 
-      const rest = await loadOwnedBusiness(req, res, emp[0].businessId);
-      if (!rest) return; // response already sent
+      const business = await loadOwnedBusiness(req, res, employee.businessId);
+      if (!business) return; // response already sent
 
       const parsed = clockSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
 
-      const openLog = await db.select().from(timeLogs).where(
-        and(eq(timeLogs.employeeId, empId), isNull(timeLogs.clockOutTime))
+      const openLog = unwrap(
+        await supabase.from("time_logs").select("id").eq("employee_id", empId).is("clock_out_time", null)
       );
-      if (openLog.length > 0) {
+      if (openLog && openLog.length > 0) {
         return res.status(400).json({ error: "Employee is already clocked in." });
       }
 
-      const result = await db.insert(timeLogs).values({
-        employeeId: empId,
-        clockInTime: new Date(),
-        selfieUrl: parsed.data.selfieUrl,
-        locationLat: parsed.data.locationLat,
-        locationLng: parsed.data.locationLng,
-      }).returning();
-      res.json(result[0]);
+      const result = unwrap(
+        await supabase
+          .from("time_logs")
+          .insert(
+            toSnakeCase({
+              employeeId: empId,
+              clockInTime: new Date(),
+              selfieUrl: parsed.data.selfieUrl,
+              locationLat: parsed.data.locationLat,
+              locationLng: parsed.data.locationLng,
+            })
+          )
+          .select()
+          .single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -397,22 +444,24 @@ async function startServer() {
   app.post("/api/employees/:id/clock-out", requireAuth, async (req: AuthRequest, res) => {
     try {
       const empId = parseInt(req.params.id);
-      const emp = await db.select().from(employees).where(eq(employees.id, empId));
-      if (emp.length === 0) return res.status(404).json({ error: "Employee not found" });
+      const emp = unwrap(await supabase.from("employees").select("*").eq("id", empId).limit(1));
+      if (!emp || emp.length === 0) return res.status(404).json({ error: "Employee not found" });
+      const employee = toCamelCase<{ businessId: number }>(emp[0]);
 
-      const rest = await loadOwnedBusiness(req, res, emp[0].businessId);
-      if (!rest) return; // response already sent
+      const business = await loadOwnedBusiness(req, res, employee.businessId);
+      if (!business) return; // response already sent
 
-      const openLog = await db.select().from(timeLogs).where(
-        and(eq(timeLogs.employeeId, empId), isNull(timeLogs.clockOutTime))
+      const openLog = unwrap(
+        await supabase.from("time_logs").select("id").eq("employee_id", empId).is("clock_out_time", null)
       );
-      if (openLog.length === 0) {
+      if (!openLog || openLog.length === 0) {
         return res.status(400).json({ error: "Employee is not clocked in." });
       }
 
-      const result = await db.update(timeLogs).set({ clockOutTime: new Date() })
-        .where(eq(timeLogs.id, openLog[0].id)).returning();
-      res.json(result[0]);
+      const result = unwrap(
+        await supabase.from("time_logs").update({ clock_out_time: new Date().toISOString() }).eq("id", openLog[0].id).select().single()
+      );
+      res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

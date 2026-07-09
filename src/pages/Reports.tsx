@@ -16,7 +16,7 @@ export default function Reports() {
     if (!user) return;
     (async () => {
       try {
-        const rest = await getBusiness(user.uid);
+        const rest = await getBusiness(user.id);
         if (!rest) return;
         const [appointments, services] = await Promise.all([getAppointments(rest.id), getServices(rest.id)]);
         const priceByService = new Map<number, number>(services.map((s: any) => [s.id, s.price]));

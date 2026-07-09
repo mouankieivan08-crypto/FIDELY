@@ -1,9 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { adminAuth } from '../lib/firebase-admin.ts';
-import { DecodedIdToken } from 'firebase-admin/auth';
+import { supabase } from '../lib/supabase-server.ts';
+
+export interface AuthUser {
+  uid: string;
+  email?: string;
+}
 
 export interface AuthRequest extends Request {
-  user?: DecodedIdToken;
+  user?: AuthUser;
 }
 
 export const requireAuth = async (
@@ -17,12 +21,12 @@ export const requireAuth = async (
   }
 
   const token = authHeader.split('Bearer ')[1];
-  try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    req.user = decodedToken;
-    next();
-  } catch (error) {
-    console.error('Error verifying Firebase ID token:', error);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    console.error('Error verifying Supabase token:', error);
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
+
+  req.user = { uid: data.user.id, email: data.user.email };
+  next();
 };

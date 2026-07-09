@@ -1,0 +1,103 @@
+-- Fidely — schéma Postgres pour Supabase
+-- À exécuter une fois dans Supabase : Dashboard > SQL Editor > New query > Run
+
+create table if not exists users (
+  id serial primary key,
+  uid text not null unique,
+  email text not null,
+  created_at timestamp default now()
+);
+
+create table if not exists businesses (
+  id serial primary key,
+  name text not null,
+  owner_uid text not null references users(uid),
+  created_at timestamp default now()
+);
+
+create table if not exists programs (
+  id serial primary key,
+  business_id integer not null references businesses(id),
+  name text not null,
+  visits_required integer not null,
+  reward_description text not null,
+  created_at timestamp default now()
+);
+
+create table if not exists customers (
+  id text primary key,
+  business_id integer not null references businesses(id),
+  name text not null,
+  phone text not null,
+  visits integer not null default 0,
+  program_id integer not null references programs(id),
+  reward_status text not null default 'pending',
+  created_at timestamp default now()
+);
+
+create table if not exists visits (
+  id serial primary key,
+  customer_id text not null references customers(id),
+  business_id integer not null references businesses(id),
+  date timestamp not null default now(),
+  validated_by text not null references users(uid)
+);
+
+create table if not exists employees (
+  id serial primary key,
+  business_id integer not null references businesses(id),
+  name text not null,
+  role text not null,
+  phone text,
+  status text not null default 'active',
+  avatar_url text,
+  created_at timestamp default now()
+);
+
+create table if not exists services (
+  id serial primary key,
+  business_id integer not null references businesses(id),
+  name text not null,
+  category text,
+  duration integer not null,
+  price integer not null,
+  description text,
+  created_at timestamp default now()
+);
+
+create table if not exists appointments (
+  id serial primary key,
+  business_id integer not null references businesses(id),
+  customer_id text not null references customers(id),
+  employee_id integer references employees(id),
+  service_id integer not null references services(id),
+  start_time timestamp not null,
+  end_time timestamp not null,
+  status text not null default 'scheduled',
+  created_at timestamp default now()
+);
+
+create table if not exists time_logs (
+  id serial primary key,
+  employee_id integer not null references employees(id),
+  clock_in_time timestamp not null,
+  clock_out_time timestamp,
+  selfie_url text,
+  location_lat text,
+  location_lng text,
+  liveness_confirmed text default 'false'
+);
+
+-- Supabase expose automatiquement chaque table via son API REST publique.
+-- On active RLS sans aucune policy : ça bloque totalement l'accès via la clé
+-- publique (sb_publishable_...). Seul le backend Fidely, qui utilise la clé
+-- secrète (sb_secret_...), peut lire/écrire — RLS ne s'applique pas à elle.
+alter table users enable row level security;
+alter table businesses enable row level security;
+alter table programs enable row level security;
+alter table customers enable row level security;
+alter table visits enable row level security;
+alter table employees enable row level security;
+alter table services enable row level security;
+alter table appointments enable row level security;
+alter table time_logs enable row level security;

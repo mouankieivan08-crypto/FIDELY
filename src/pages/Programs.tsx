@@ -24,7 +24,7 @@ export default function Programs() {
 
   const fetchPrograms = async () => {
     try {
-      const rest = await getBusiness(user!.uid);
+      const rest = await getBusiness(user!.id);
       if (rest) {
         const data = await getPrograms(rest.id);
         setPrograms(data);
@@ -40,7 +40,7 @@ export default function Programs() {
     e.preventDefault();
     setFormError("");
     try {
-      const rest = await getBusiness(user!.uid);
+      const rest = await getBusiness(user!.id);
       if (rest) {
         await createProgram(rest.id, newProgram);
         setShowModal(false);

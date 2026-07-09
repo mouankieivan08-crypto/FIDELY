@@ -32,7 +32,7 @@ export default function Employees() {
     const loadData = async () => {
       if (user) {
         try {
-          const rest = await getBusiness(user.uid);
+          const rest = await getBusiness(user.id);
           if (rest) {
             setBusinessId(rest.id);
             const emps = await getEmployees(rest.id);

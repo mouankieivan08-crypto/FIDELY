@@ -27,7 +27,7 @@ export default function Customers() {
 
   const fetchData = async () => {
     try {
-      const rest = await getBusiness(user!.uid);
+      const rest = await getBusiness(user!.id);
       if (rest) {
         const [custData, progData] = await Promise.all([
           getCustomers(rest.id),
@@ -50,7 +50,7 @@ export default function Customers() {
     e.preventDefault();
     setFormError("");
     try {
-      const rest = await getBusiness(user!.uid);
+      const rest = await getBusiness(user!.id);
       if (rest) {
         await createCustomer(rest.id, {
           name: newCustomer.name,

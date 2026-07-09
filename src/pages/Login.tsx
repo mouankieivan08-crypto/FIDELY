@@ -1,17 +1,15 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
 import { CreditCard, Mail } from "lucide-react";
 
 export default function Login() {
   const { signInWithGoogle } = useAuth();
-  const navigate = useNavigate();
   const [error, setError] = useState("");
 
   const handleLogin = async () => {
     try {
-      await signInWithGoogle();
-      navigate("/dashboard");
+      setError("");
+      await signInWithGoogle(); // redirects to Google; user comes back on /dashboard
     } catch (err: any) {
       setError("Échec de la connexion : " + err.message);
     }

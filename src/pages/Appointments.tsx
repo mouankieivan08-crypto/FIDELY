@@ -30,7 +30,7 @@ export default function Appointments() {
 
   const fetchData = async () => {
     try {
-      const rest = await getBusiness(user!.uid);
+      const rest = await getBusiness(user!.id);
       if (rest) {
         setBusinessId(rest.id);
         const [apts, emps, custs, svcs] = await Promise.all([
