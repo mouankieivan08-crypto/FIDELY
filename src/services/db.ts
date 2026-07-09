@@ -177,3 +177,89 @@ export const createAppointment = async (businessId: number, data: any) => {
     body: JSON.stringify(data)
   });
 };
+
+// --- Categories ---
+export interface Category { id: number; businessId: number; name: string; createdAt: string; }
+
+export const getCategories = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/categories`);
+};
+
+export const createCategory = async (businessId: number, name: string) => {
+  return fetchApi(`/businesses/${businessId}/categories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+};
+
+export const deleteCategory = async (categoryId: number) => {
+  return fetchApi(`/categories/${categoryId}`, { method: 'DELETE' });
+};
+
+// --- Accounting / transactions ---
+export interface Transaction {
+  id: number;
+  businessId: number;
+  type: "credit" | "debit";
+  amount: number; // FCFA
+  category?: string;
+  description?: string;
+  date: string;
+  createdAt: string;
+}
+
+export const getTransactions = async (businessId: number, from?: string, to?: string) => {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
+  return fetchApi(`/businesses/${businessId}/transactions${qs ? `?${qs}` : ""}`);
+};
+
+export const createTransaction = async (businessId: number, data: Omit<Transaction, "id" | "businessId" | "createdAt">) => {
+  return fetchApi(`/businesses/${businessId}/transactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteTransaction = async (transactionId: number) => {
+  return fetchApi(`/transactions/${transactionId}`, { method: 'DELETE' });
+};
+
+// --- Staff / members ---
+export interface Member {
+  id: number;
+  businessId: number;
+  email: string;
+  uid?: string;
+  name?: string;
+  role: "admin" | "staff";
+  createdAt: string;
+}
+
+export const getMembers = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/members`);
+};
+
+export const createMember = async (businessId: number, data: { email: string; name?: string; role?: "admin" | "staff" }) => {
+  return fetchApi(`/businesses/${businessId}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+};
+
+export const updateMemberRole = async (memberId: number, role: "admin" | "staff") => {
+  return fetchApi(`/members/${memberId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+};
+
+export const deleteMember = async (memberId: number) => {
+  return fetchApi(`/members/${memberId}`, { method: 'DELETE' });
+};

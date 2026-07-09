@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond } from "lucide-react";
+import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond, Wallet, Shield } from "lucide-react";
 import { useState, useEffect } from "react";
 import React from "react";
 import { cn } from "../lib/utils";
@@ -11,12 +11,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [businessName, setBusinessName] = useState("Fidely");
+  const [role, setRole] = useState<string>("admin");
 
   useEffect(() => {
     if (user) {
       getBusiness(user.id).then(rest => {
         if (rest) {
           setBusinessName(rest.name);
+          if (rest.role) setRole(rest.role);
         }
       });
     }
@@ -25,15 +27,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || "Utilisateur";
 
   const navItems = [
-    { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Agenda", href: "/appointments", icon: CalendarIcon },
-    { name: "Clients", href: "/customers", icon: Users },
-    { name: "Employés", href: "/employees", icon: Briefcase },
-    { name: "Prestations", href: "/services", icon: Scissors },
-    { name: "Fidélité", href: "/programs", icon: CreditCard },
-    { name: "Scanner", href: "/scanner", icon: ScanLine },
-    { name: "Rapports", href: "/reports", icon: BarChart3 },
-  ];
+    { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard, adminOnly: false },
+    { name: "Agenda", href: "/appointments", icon: CalendarIcon, adminOnly: false },
+    { name: "Clients", href: "/customers", icon: Users, adminOnly: false },
+    { name: "Employés", href: "/employees", icon: Briefcase, adminOnly: false },
+    { name: "Prestations", href: "/services", icon: Scissors, adminOnly: false },
+    { name: "Fidélité", href: "/programs", icon: CreditCard, adminOnly: false },
+    { name: "Scanner", href: "/scanner", icon: ScanLine, adminOnly: false },
+    { name: "Comptabilité", href: "/accounting", icon: Wallet, adminOnly: true },
+    { name: "Personnel", href: "/personnel", icon: Shield, adminOnly: true },
+    { name: "Rapports", href: "/reports", icon: BarChart3, adminOnly: true },
+  ].filter(item => !item.adminOnly || role === "admin");
 
   return (
     <div className="min-h-screen bg-gray-50 flex">

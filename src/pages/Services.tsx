@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
-import { Plus, Search, Tag, Clock, X } from "lucide-react";
+import { Plus, Search, Tag, Clock, X, Trash2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, getServices, createService } from "../services/db";
+import { getBusiness, getServices, createService, getCategories, createCategory, deleteCategory, Category } from "../services/db";
 
 export default function Services() {
   const { user } = useAuth();
@@ -10,7 +10,10 @@ export default function Services() {
   const [formError, setFormError] = useState("");
   const [servicesList, setServicesList] = useState<any[]>([]);
   const [businessId, setBusinessId] = useState<number | null>(null);
-  const categories = Array.from(new Set(servicesList.map((s: any) => s.category).filter(Boolean)));
+  const [categoriesList, setCategoriesList] = useState<Category[]>([]);
+  const [activeCategory, setActiveCategory] = useState<string>("");
+  const [newCategory, setNewCategory] = useState("");
+  const [search, setSearch] = useState("");
 
   const [formData, setFormData] = useState({
     name: '',
@@ -30,13 +33,33 @@ export default function Services() {
       const rest = await getBusiness(user!.id);
       if (rest) {
         setBusinessId(rest.id);
-        const svcs = await getServices(rest.id);
+        const [svcs, cats] = await Promise.all([getServices(rest.id), getCategories(rest.id)]);
         setServicesList(svcs);
+        setCategoriesList(cats);
       }
     } catch (error) {
       console.error("Error fetching services:", error);
     }
   };
+
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!businessId || !newCategory.trim()) return;
+    try {
+      const cat = await createCategory(businessId, newCategory.trim());
+      setCategoriesList([...categoriesList, cat]);
+      setNewCategory("");
+    } catch (error) { console.error(error); }
+  };
+
+  const handleDeleteCategory = async (id: number) => {
+    try { await deleteCategory(id); setCategoriesList(categoriesList.filter(c => c.id !== id)); } catch (error) { console.error(error); }
+  };
+
+  const filteredServices = servicesList.filter(s =>
+    (!activeCategory || s.category === activeCategory) &&
+    (!search || s.name.toLowerCase().includes(search.toLowerCase()))
+  );
 
   const handleCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +74,7 @@ export default function Services() {
       });
       setServicesList([...servicesList, newSvc]);
       setShowModal(false);
-      setFormData({ name: '', category: '', price: '', duration: '' });
+      setFormData({ name: '', category: categoriesList[0]?.name || '', price: '', duration: '' });
     } catch (error) {
       console.error("Error creating service:", error);
       setFormError((error as Error).message || "Échec de la création de la prestation.");
@@ -79,15 +102,27 @@ export default function Services() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
             <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wide mb-3 px-2">Catégories</h2>
             <nav className="space-y-1">
-              <a href="#" className="block px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium">
+              <button onClick={() => setActiveCategory("")}
+                className={`block w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeCategory === "" ? "bg-indigo-50 text-indigo-700" : "text-gray-600 hover:bg-gray-50"}`}>
                 Toutes les prestations
-              </a>
-              {categories.map((cat, i) => (
-                <a key={i} href="#" className="block px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors">
-                  {cat}
-                </a>
+              </button>
+              {categoriesList.map((cat) => (
+                <div key={cat.id} className="group flex items-center">
+                  <button onClick={() => setActiveCategory(cat.name)}
+                    className={`flex-1 text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeCategory === cat.name ? "bg-indigo-50 text-indigo-700" : "text-gray-600 hover:bg-gray-50"}`}>
+                    {cat.name}
+                  </button>
+                  <button onClick={() => handleDeleteCategory(cat.id)} title="Supprimer" className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 px-1">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))}
             </nav>
+            <form onSubmit={handleAddCategory} className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
+              <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="Nouvelle catégorie"
+                className="flex-1 min-w-0 text-sm border-gray-200 rounded-lg" />
+              <button type="submit" className="px-2 bg-indigo-600 text-white rounded-lg"><Plus className="h-4 w-4" /></button>
+            </form>
           </div>
         </div>
 
@@ -99,18 +134,20 @@ export default function Services() {
             </div>
             <input
               type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
               className="block w-full pl-10 pr-3 py-3 border border-gray-200 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm shadow-sm transition-shadow"
               placeholder="Rechercher une prestation..."
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {servicesList.length === 0 ? (
+            {filteredServices.length === 0 ? (
               <div className="col-span-full bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-                <p className="text-gray-500">Aucune prestation n'a été ajoutée.</p>
+                <p className="text-gray-500">Aucune prestation dans cette catégorie.</p>
               </div>
             ) : (
-              servicesList.map((service, i) => (
+              filteredServices.map((service, i) => (
                 <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow cursor-pointer group">
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="text-lg font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">{service.name}</h3>
@@ -158,18 +195,21 @@ export default function Services() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Catégorie</label>
-                <input
-                  type="text"
-                  required
-                  list="service-categories"
-                  value={formData.category}
-                  onChange={e => setFormData({...formData, category: e.target.value})}
-                  className="w-full border-gray-300 rounded-lg shadow-sm"
-                  placeholder="Ex: Coiffure, Réparation, Consultation..."
-                />
-                <datalist id="service-categories">
-                  {categories.map(c => <option key={c} value={c} />)}
-                </datalist>
+                {categoriesList.length === 0 ? (
+                  <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                    Ajoutez d'abord une catégorie dans la colonne de gauche.
+                  </p>
+                ) : (
+                  <select
+                    required
+                    value={formData.category}
+                    onChange={e => setFormData({...formData, category: e.target.value})}
+                    className="w-full border-gray-300 rounded-lg shadow-sm"
+                  >
+                    <option value="">Sélectionner...</option>
+                    {categoriesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

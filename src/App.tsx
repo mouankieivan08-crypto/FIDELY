@@ -10,6 +10,8 @@ import Employees from "./pages/Employees";
 import Appointments from "./pages/Appointments";
 import Services from "./pages/Services";
 import Reports from "./pages/Reports";
+import Accounting from "./pages/Accounting";
+import Personnel from "./pages/Personnel";
 import React from "react";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -92,6 +94,22 @@ export default function App() {
             element={
               <PrivateRoute>
                 <Reports />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/accounting"
+            element={
+              <PrivateRoute>
+                <Accounting />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/personnel"
+            element={
+              <PrivateRoute>
+                <Personnel />
               </PrivateRoute>
             }
           />

@@ -88,6 +88,38 @@ create table if not exists time_logs (
   liveness_confirmed text default 'false'
 );
 
+create table if not exists categories (
+  id serial primary key,
+  business_id integer not null references businesses(id),
+  name text not null,
+  created_at timestamp default now()
+);
+
+alter table services add column if not exists category_id integer references categories(id);
+
+create table if not exists transactions (
+  id serial primary key,
+  business_id integer not null references businesses(id),
+  type text not null,               -- 'credit' | 'debit'
+  amount integer not null,          -- FCFA (entier)
+  category text,
+  description text,
+  date timestamp not null default now(),
+  created_by text references users(uid),
+  created_at timestamp default now()
+);
+
+create table if not exists members (
+  id serial primary key,
+  business_id integer not null references businesses(id),
+  email text not null,
+  uid text references users(uid),
+  name text,
+  role text not null default 'staff', -- 'admin' | 'staff'
+  created_at timestamp default now(),
+  unique (business_id, email)
+);
+
 -- Supabase expose automatiquement chaque table via son API REST publique.
 -- On active RLS sans aucune policy : ça bloque totalement l'accès via la clé
 -- publique (sb_publishable_...). Seul le backend Fidely, qui utilise la clé
@@ -101,3 +133,6 @@ alter table employees enable row level security;
 alter table services enable row level security;
 alter table appointments enable row level security;
 alter table time_logs enable row level security;
+alter table categories enable row level security;
+alter table transactions enable row level security;
+alter table members enable row level security;
