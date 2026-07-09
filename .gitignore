@@ -9,3 +9,4 @@ coverage/
 
 # Vercel
 .vercel
+seed-demo.ts
