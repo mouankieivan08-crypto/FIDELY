@@ -3,7 +3,7 @@ import Layout from "../components/Layout";
 import { Download, FileText, TrendingUp, Users, CreditCard, X } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, getAppointments, getServices } from "../services/db";
+import { getBusiness, getAppointments, getServices } from "../services/db";
 
 const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
 
@@ -16,7 +16,7 @@ export default function Reports() {
     if (!user) return;
     (async () => {
       try {
-        const rest = await getRestaurant(user.uid);
+        const rest = await getBusiness(user.uid);
         if (!rest) return;
         const [appointments, services] = await Promise.all([getAppointments(rest.id), getServices(rest.id)]);
         const priceByService = new Map<number, number>(services.map((s: any) => [s.id, s.price]));

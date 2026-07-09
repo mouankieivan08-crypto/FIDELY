@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, getPrograms, createProgram, Program } from "../services/db";
+import { getBusiness, getPrograms, createProgram, Program } from "../services/db";
 import Layout from "../components/Layout";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -24,7 +24,7 @@ export default function Programs() {
 
   const fetchPrograms = async () => {
     try {
-      const rest = await getRestaurant(user!.uid);
+      const rest = await getBusiness(user!.uid);
       if (rest) {
         const data = await getPrograms(rest.id);
         setPrograms(data);
@@ -40,7 +40,7 @@ export default function Programs() {
     e.preventDefault();
     setFormError("");
     try {
-      const rest = await getRestaurant(user!.uid);
+      const rest = await getBusiness(user!.uid);
       if (rest) {
         await createProgram(rest.id, newProgram);
         setShowModal(false);
@@ -112,7 +112,7 @@ export default function Programs() {
                   value={newProgram.name}
                   onChange={(e) => setNewProgram({ ...newProgram, name: e.target.value })}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                  placeholder="Ex: Menu Midi Offert"
+                  placeholder="Ex: 10ème achat offert"
                 />
               </div>
               <div>
@@ -134,7 +134,7 @@ export default function Programs() {
                   value={newProgram.rewardDescription}
                   onChange={(e) => setNewProgram({ ...newProgram, rewardDescription: e.target.value })}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border"
-                  placeholder="Ex: Un café gratuit"
+                  placeholder="Ex: 10% de réduction"
                 />
               </div>
               <div className="flex justify-end space-x-3 mt-6">

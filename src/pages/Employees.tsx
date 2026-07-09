@@ -3,7 +3,7 @@ import Layout from "../components/Layout";
 import Webcam from "react-webcam";
 import { Camera, CheckCircle, Clock, Briefcase, Plus, User, Tag, Key, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, getEmployees, createEmployee, clockIn, clockOut, Employee } from "../services/db";
+import { getBusiness, getEmployees, createEmployee, clockIn, clockOut, Employee } from "../services/db";
 
 export default function Employees() {
   const { user } = useAuth();
@@ -15,7 +15,7 @@ export default function Employees() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [formError, setFormError] = useState("");
-  const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [businessId, setBusinessId] = useState<number | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -32,9 +32,9 @@ export default function Employees() {
     const loadData = async () => {
       if (user) {
         try {
-          const rest = await getRestaurant(user.uid);
+          const rest = await getBusiness(user.uid);
           if (rest) {
-            setRestaurantId(rest.id);
+            setBusinessId(rest.id);
             const emps = await getEmployees(rest.id);
             setEmployees(emps);
           }
@@ -50,10 +50,10 @@ export default function Employees() {
 
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!restaurantId) return;
+    if (!businessId) return;
     setFormError("");
     try {
-      const newEmp = await createEmployee(restaurantId, formData);
+      const newEmp = await createEmployee(businessId, formData);
       setEmployees([...employees, newEmp]);
       setShowAddModal(false);
       setFormData({ name: '', role: '', phone: '', avatarUrl: '' });
@@ -198,7 +198,7 @@ export default function Employees() {
             </div>
             
             <div className="p-4 bg-white text-xs text-center text-gray-500 border-t border-gray-100">
-              Assurez-vous d'être dans le salon. La position GPS sera enregistrée.
+              Assurez-vous d'être sur votre lieu de travail. La position GPS sera enregistrée.
             </div>
           </div>
         </div>
@@ -324,7 +324,7 @@ export default function Employees() {
                       value={formData.role}
                       onChange={(e) => setFormData({...formData, role: e.target.value})}
                       className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                      placeholder="Ex: Coiffeur(se)"
+                      placeholder="Ex: Vendeur, Technicien, Réceptionniste..."
                     />
                   </div>
                 </div>

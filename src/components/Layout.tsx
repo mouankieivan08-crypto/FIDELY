@@ -4,19 +4,19 @@ import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcas
 import { useState, useEffect } from "react";
 import React from "react";
 import { cn } from "../lib/utils";
-import { getRestaurant } from "../services/db";
+import { getBusiness } from "../services/db";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [restaurantName, setRestaurantName] = useState("Luxe CRM");
+  const [businessName, setBusinessName] = useState("Fidely");
 
   useEffect(() => {
     if (user) {
-      getRestaurant(user.uid).then(rest => {
+      getBusiness(user.uid).then(rest => {
         if (rest) {
-          setRestaurantName(rest.name);
+          setBusinessName(rest.name);
         }
       });
     }
@@ -42,7 +42,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )}>
         <div className="h-16 flex items-center px-6 border-b border-gray-900 shrink-0">
           <Diamond className="h-6 w-6 text-indigo-500 mr-2" />
-          <span className="text-xl font-bold tracking-widest text-indigo-500 uppercase truncate" title={restaurantName}>{restaurantName}</span>
+          <span className="text-xl font-bold tracking-widest text-indigo-500 uppercase truncate" title={businessName}>{businessName}</span>
           <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden ml-auto">
             <X className="h-6 w-6 text-gray-500" />
           </button>
@@ -95,7 +95,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <header className="lg:hidden bg-gray-950 border-b border-gray-900 h-16 flex items-center px-4 justify-between">
           <div className="flex items-center">
             <Diamond className="h-6 w-6 text-indigo-500 mr-2" />
-            <span className="text-xl font-bold tracking-widest text-indigo-500 uppercase truncate" title={restaurantName}>{restaurantName}</span>
+            <span className="text-xl font-bold tracking-widest text-indigo-500 uppercase truncate" title={businessName}>{businessName}</span>
           </div>
           <button onClick={() => setIsMobileMenuOpen(true)}>
             <Menu className="h-6 w-6 text-gray-400" />

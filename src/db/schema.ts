@@ -8,7 +8,7 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export const restaurants = pgTable('restaurants', {
+export const businesses = pgTable('businesses', {
   id: serial('id').primaryKey(),
   name: text('name').notNull(),
   ownerUid: text('owner_uid').references(() => users.uid).notNull(),
@@ -17,7 +17,7 @@ export const restaurants = pgTable('restaurants', {
 
 export const programs = pgTable('programs', {
   id: serial('id').primaryKey(),
-  restaurantId: integer('restaurant_id').references(() => restaurants.id).notNull(),
+  businessId: integer('business_id').references(() => businesses.id).notNull(),
   name: text('name').notNull(),
   visitsRequired: integer('visits_required').notNull(),
   rewardDescription: text('reward_description').notNull(),
@@ -26,7 +26,7 @@ export const programs = pgTable('programs', {
 
 export const customers = pgTable('customers', {
   id: text('id').primaryKey(), // Generated UUID-like or shorter for QR
-  restaurantId: integer('restaurant_id').references(() => restaurants.id).notNull(),
+  businessId: integer('business_id').references(() => businesses.id).notNull(),
   name: text('name').notNull(),
   phone: text('phone').notNull(),
   visits: integer('visits').default(0).notNull(),
@@ -38,14 +38,14 @@ export const customers = pgTable('customers', {
 export const visits = pgTable('visits', {
   id: serial('id').primaryKey(),
   customerId: text('customer_id').references(() => customers.id).notNull(),
-  restaurantId: integer('restaurant_id').references(() => restaurants.id).notNull(),
+  businessId: integer('business_id').references(() => businesses.id).notNull(),
   date: timestamp('date').defaultNow().notNull(),
   validatedBy: text('validated_by').references(() => users.uid).notNull(),
 });
 
 export const employees = pgTable('employees', {
   id: serial('id').primaryKey(),
-  restaurantId: integer('restaurant_id').references(() => restaurants.id).notNull(),
+  businessId: integer('business_id').references(() => businesses.id).notNull(),
   name: text('name').notNull(),
   role: text('role').notNull(),
   phone: text('phone'),
@@ -56,7 +56,7 @@ export const employees = pgTable('employees', {
 
 export const services = pgTable('services', {
   id: serial('id').primaryKey(),
-  restaurantId: integer('restaurant_id').references(() => restaurants.id).notNull(),
+  businessId: integer('business_id').references(() => businesses.id).notNull(),
   name: text('name').notNull(),
   category: text('category'),
   duration: integer('duration').notNull(), // in minutes
@@ -67,7 +67,7 @@ export const services = pgTable('services', {
 
 export const appointments = pgTable('appointments', {
   id: serial('id').primaryKey(),
-  restaurantId: integer('restaurant_id').references(() => restaurants.id).notNull(),
+  businessId: integer('business_id').references(() => businesses.id).notNull(),
   customerId: text('customer_id').references(() => customers.id).notNull(),
   employeeId: integer('employee_id').references(() => employees.id),
   serviceId: integer('service_id').references(() => services.id).notNull(),

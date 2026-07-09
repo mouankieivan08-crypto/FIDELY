@@ -23,7 +23,7 @@ export default function CustomerView() {
       const cust = await getCustomer(customerId);
       if (cust) {
         setCustomer(cust);
-        const programs = await getPrograms(cust.restaurantId);
+        const programs = await getPrograms(cust.businessId);
         const prog = programs.find((p: Program) => p.id === cust.programId);
         setProgram(prog || null);
         

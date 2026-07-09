@@ -1,8 +1,9 @@
 # Fidely
 
-CRM de fidélité pour salons/instituts : programmes de fidélité, fiches clients
-avec carte QR partageable, scan de visites, agenda de rendez-vous, prestations,
-employés et pointage.
+CRM de fidélité pour tout type de commerce (salons, boutiques, restaurants,
+cabinets, ateliers...) : programmes de fidélité, fiches clients avec carte QR
+partageable, scan de visites, agenda de rendez-vous, prestations, employés et
+pointage.
 
 ## Stack
 

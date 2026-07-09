@@ -2,19 +2,19 @@ import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
 import { Plus, Search, Tag, Clock, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, getServices, createService } from "../services/db";
+import { getBusiness, getServices, createService } from "../services/db";
 
 export default function Services() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [formError, setFormError] = useState("");
-  const categories = ["Coiffure", "Esthétique", "Massages", "Onglerie"];
   const [servicesList, setServicesList] = useState<any[]>([]);
-  const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [businessId, setBusinessId] = useState<number | null>(null);
+  const categories = Array.from(new Set(servicesList.map((s: any) => s.category).filter(Boolean)));
 
   const [formData, setFormData] = useState({
     name: '',
-    category: categories[0],
+    category: '',
     price: '',
     duration: ''
   });
@@ -27,9 +27,9 @@ export default function Services() {
 
   const fetchData = async () => {
     try {
-      const rest = await getRestaurant(user!.uid);
+      const rest = await getBusiness(user!.uid);
       if (rest) {
-        setRestaurantId(rest.id);
+        setBusinessId(rest.id);
         const svcs = await getServices(rest.id);
         setServicesList(svcs);
       }
@@ -40,10 +40,10 @@ export default function Services() {
 
   const handleCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!restaurantId) return;
+    if (!businessId) return;
     setFormError("");
     try {
-      const newSvc = await createService(restaurantId, {
+      const newSvc = await createService(businessId, {
         name: formData.name,
         category: formData.category,
         price: parseInt(formData.price) * 100, // store in cents
@@ -51,7 +51,7 @@ export default function Services() {
       });
       setServicesList([...servicesList, newSvc]);
       setShowModal(false);
-      setFormData({ name: '', category: categories[0], price: '', duration: '' });
+      setFormData({ name: '', category: '', price: '', duration: '' });
     } catch (error) {
       console.error("Error creating service:", error);
       setFormError((error as Error).message || "Échec de la création de la prestation.");
@@ -158,9 +158,18 @@ export default function Services() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Catégorie</label>
-                <select required value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full border-gray-300 rounded-lg shadow-sm">
-                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <input
+                  type="text"
+                  required
+                  list="service-categories"
+                  value={formData.category}
+                  onChange={e => setFormData({...formData, category: e.target.value})}
+                  className="w-full border-gray-300 rounded-lg shadow-sm"
+                  placeholder="Ex: Coiffure, Réparation, Consultation..."
+                />
+                <datalist id="service-categories">
+                  {categories.map(c => <option key={c} value={c} />)}
+                </datalist>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

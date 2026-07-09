@@ -27,7 +27,7 @@ export default function Login() {
           Connexion à FIDELY
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Gérez votre programme de fidélité restaurant
+          Gérez le programme de fidélité de votre entreprise
         </p>
       </div>
 

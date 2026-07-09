@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, createRestaurant, getPrograms, getCustomers, getEmployees, getAppointments, getServices } from "../services/db";
+import { getBusiness, createBusiness, getPrograms, getCustomers, getEmployees, getAppointments, getServices } from "../services/db";
 import Layout from "../components/Layout";
 import StatCard from "../components/StatCard";
 import { Users, CreditCard, Award, TrendingUp, Store, Clock, CalendarCheck, Package, Plus } from "lucide-react";
@@ -46,7 +46,7 @@ function buildClientsData(customers: any[]) {
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const [restaurant, setRestaurant] = useState<any>(null);
+  const [business, setBusiness] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     customers: 0,
@@ -59,7 +59,7 @@ export default function Dashboard() {
   const [appointmentsData, setAppointmentsData] = useState<any[]>([]);
   const [period, setPeriod] = useState("Jour"); // Jour, Semaine, Mois, Année
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [newRestaurantName, setNewRestaurantName] = useState("");
+  const [newBusinessName, setNewBusinessName] = useState("");
   const [filteredAppointments, setFilteredAppointments] = useState<any[]>([]);
   const [dataSales, setDataSales] = useState<{ name: string; total: number }[]>([]);
   const [dataClients, setDataClients] = useState<{ name: string; nouveaux: number; fideles: number }[]>([]);
@@ -104,8 +104,8 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const rest = await getRestaurant(user!.uid);
-      setRestaurant(rest);
+      const rest = await getBusiness(user!.uid);
+      setBusiness(rest);
       if (rest) {
         const programs = await getPrograms(rest.id);
         const customers = await getCustomers(rest.id);
@@ -133,38 +133,38 @@ export default function Dashboard() {
     }
   };
 
-  const handleCreateRestaurant = async (e: React.FormEvent) => {
+  const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRestaurantName.trim()) return;
+    if (!newBusinessName.trim()) return;
     try {
-      await createRestaurant(user!.uid, newRestaurantName);
+      await createBusiness(user!.uid, newBusinessName);
       await fetchData();
     } catch (error) {
-      console.error("Error creating restaurant:", error);
+      console.error("Error creating business:", error);
     }
   };
 
   if (loading) return <div className="flex justify-center items-center h-screen bg-gray-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>;
 
-  if (!restaurant) {
+  if (!business) {
     return (
       <Layout>
         <div className="max-w-md mx-auto mt-10 bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
           <div className="flex justify-center mb-6">
             <Store className="h-12 w-12 text-indigo-500" />
           </div>
-          <h2 className="text-2xl font-bold mb-2 text-center text-gray-900 tracking-tight">Bienvenue sur LUXE CRM</h2>
+          <h2 className="text-2xl font-bold mb-2 text-center text-gray-900 tracking-tight">Bienvenue sur Fidely</h2>
           <p className="mb-8 text-center text-gray-500">Pour commencer, veuillez configurer votre établissement.</p>
-          <form onSubmit={handleCreateRestaurant} className="space-y-6">
+          <form onSubmit={handleCreateBusiness} className="space-y-6">
             <div>
               <label htmlFor="name" className="block text-sm font-semibold text-gray-900 mb-2">Nom de votre établissement</label>
               <input
                 type="text"
                 id="name"
-                value={newRestaurantName}
-                onChange={(e) => setNewRestaurantName(e.target.value)}
+                value={newBusinessName}
+                onChange={(e) => setNewBusinessName(e.target.value)}
                 className="block w-full rounded-xl border-gray-200 bg-gray-50 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 focus:bg-white transition-colors sm:text-sm p-4 border"
-                placeholder="Ex: Le Salon Parisien"
+                placeholder="Ex: Ma Boutique, Mon Salon, Mon Cabinet, Mon Restaurant..."
                 required
               />
             </div>
@@ -185,7 +185,7 @@ export default function Dashboard() {
       <div className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Tableau de bord</h1>
-          <p className="text-sm text-gray-500 mt-1">Aperçu des performances pour <span className="font-semibold text-gray-900">{restaurant.name}</span></p>
+          <p className="text-sm text-gray-500 mt-1">Aperçu des performances pour <span className="font-semibold text-gray-900">{business.name}</span></p>
         </div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">

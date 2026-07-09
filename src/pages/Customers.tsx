@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, getCustomers, createCustomer, getPrograms, Program, Customer } from "../services/db";
+import { getBusiness, getCustomers, createCustomer, getPrograms, Program, Customer } from "../services/db";
 import Layout from "../components/Layout";
 import { Plus, Search, X, Users as UsersIcon } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -27,7 +27,7 @@ export default function Customers() {
 
   const fetchData = async () => {
     try {
-      const rest = await getRestaurant(user!.uid);
+      const rest = await getBusiness(user!.uid);
       if (rest) {
         const [custData, progData] = await Promise.all([
           getCustomers(rest.id),
@@ -50,7 +50,7 @@ export default function Customers() {
     e.preventDefault();
     setFormError("");
     try {
-      const rest = await getRestaurant(user!.uid);
+      const rest = await getBusiness(user!.uid);
       if (rest) {
         await createCustomer(rest.id, {
           name: newCustomer.name,

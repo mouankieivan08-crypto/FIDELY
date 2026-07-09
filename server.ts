@@ -4,7 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { z } from "zod";
 import { requireAuth, AuthRequest } from "./src/middleware/auth.ts";
 import { db } from "./src/db/index.ts";
-import { users, restaurants, programs, customers, visits, employees, services, appointments, timeLogs } from "./src/db/schema.ts";
+import { users, businesses, programs, customers, visits, employees, services, appointments, timeLogs } from "./src/db/schema.ts";
 import { eq, and, gt, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
@@ -22,15 +22,15 @@ async function startServer() {
     }
   };
 
-  // Loads the restaurant for :id and 403s if it isn't owned by the caller.
-  const loadOwnedRestaurant = async (req: AuthRequest, res: express.Response, restaurantId: number) => {
-    if (Number.isNaN(restaurantId)) {
-      res.status(400).json({ error: "Invalid restaurant id" });
+  // Loads the business for :id and 403s if it isn't owned by the caller.
+  const loadOwnedBusiness = async (req: AuthRequest, res: express.Response, businessId: number) => {
+    if (Number.isNaN(businessId)) {
+      res.status(400).json({ error: "Invalid business id" });
       return null;
     }
-    const rows = await db.select().from(restaurants).where(eq(restaurants.id, restaurantId));
+    const rows = await db.select().from(businesses).where(eq(businesses.id, businessId));
     if (rows.length === 0) {
-      res.status(404).json({ error: "Restaurant not found" });
+      res.status(404).json({ error: "Business not found" });
       return null;
     }
     if (rows[0].ownerUid !== req.user!.uid) {
@@ -40,15 +40,15 @@ async function startServer() {
     return rows[0];
   };
 
-  const requireOwnedRestaurant = async (
+  const requireOwnedBusiness = async (
     req: AuthRequest,
     res: express.Response,
     next: express.NextFunction
   ) => {
     const restId = parseInt(req.params.id);
-    const rest = await loadOwnedRestaurant(req, res, restId);
+    const rest = await loadOwnedBusiness(req, res, restId);
     if (!rest) return; // response already sent
-    (req as any).restaurant = rest;
+    (req as any).business = rest;
     next();
   };
 
@@ -60,34 +60,34 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
-  // Get restaurant for logged in user
-  app.get("/api/restaurant", requireAuth, async (req: AuthRequest, res) => {
+  // Get business for logged in user
+  app.get("/api/business", requireAuth, async (req: AuthRequest, res) => {
     try {
       await syncUser(req.user!.uid, req.user!.email);
-      const rest = await db.select().from(restaurants).where(eq(restaurants.ownerUid, req.user!.uid));
+      const rest = await db.select().from(businesses).where(eq(businesses.ownerUid, req.user!.uid));
       res.json(rest.length > 0 ? rest[0] : null);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
   });
 
-  const createRestaurantSchema = z.object({ name: z.string().trim().min(1).max(200) });
+  const createBusinessSchema = z.object({ name: z.string().trim().min(1).max(200) });
 
-  app.post("/api/restaurant", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/business", requireAuth, async (req: AuthRequest, res) => {
     try {
-      const parsed = createRestaurantSchema.safeParse(req.body);
+      const parsed = createBusinessSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       await syncUser(req.user!.uid, req.user!.email);
-      const result = await db.insert(restaurants).values({ name: parsed.data.name, ownerUid: req.user!.uid }).returning();
+      const result = await db.insert(businesses).values({ name: parsed.data.name, ownerUid: req.user!.uid }).returning();
       res.json(result[0]);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
   });
 
-  app.get("/api/restaurants/:id/programs", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.get("/api/businesses/:id/programs", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const progs = await db.select().from(programs).where(eq(programs.restaurantId, parseInt(req.params.id)));
+      const progs = await db.select().from(programs).where(eq(programs.businessId, parseInt(req.params.id)));
       res.json(progs);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -100,12 +100,12 @@ async function startServer() {
     rewardDescription: z.string().trim().min(1).max(500),
   });
 
-  app.post("/api/restaurants/:id/programs", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/programs", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createProgramSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const result = await db.insert(programs).values({
-        restaurantId: parseInt(req.params.id),
+        businessId: parseInt(req.params.id),
         name: parsed.data.name,
         visitsRequired: parsed.data.visitsRequired,
         rewardDescription: parsed.data.rewardDescription,
@@ -116,9 +116,9 @@ async function startServer() {
     }
   });
 
-  app.get("/api/restaurants/:id/customers", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.get("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const custs = await db.select().from(customers).where(eq(customers.restaurantId, parseInt(req.params.id)));
+      const custs = await db.select().from(customers).where(eq(customers.businessId, parseInt(req.params.id)));
       res.json(custs);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -131,15 +131,15 @@ async function startServer() {
     programId: z.coerce.number().int().positive(),
   });
 
-  app.post("/api/restaurants/:id/customers", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createCustomerSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const restId = parseInt(req.params.id);
 
-      // programId must belong to this restaurant
+      // programId must belong to this business
       const prog = await db.select().from(programs).where(
-        and(eq(programs.id, parsed.data.programId), eq(programs.restaurantId, restId))
+        and(eq(programs.id, parsed.data.programId), eq(programs.businessId, restId))
       );
       if (prog.length === 0) return res.status(400).json({ error: "Invalid program" });
 
@@ -147,7 +147,7 @@ async function startServer() {
       const id = "CARD-" + randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
       const result = await db.insert(customers).values({
         id,
-        restaurantId: restId,
+        businessId: restId,
         name: parsed.data.name,
         phone: parsed.data.phone,
         programId: parsed.data.programId,
@@ -177,7 +177,7 @@ async function startServer() {
       if (custs.length === 0) return res.status(404).json({ error: "Customer not found" });
       const customer = custs[0];
 
-      const rest = await loadOwnedRestaurant(req, res, customer.restaurantId);
+      const rest = await loadOwnedBusiness(req, res, customer.businessId);
       if (!rest) return; // response already sent
 
       // Check double scan
@@ -197,7 +197,7 @@ async function startServer() {
       // add visit
       await db.insert(visits).values({
         customerId,
-        restaurantId: customer.restaurantId,
+        businessId: customer.businessId,
         validatedBy: req.user!.uid,
       });
 
@@ -230,7 +230,7 @@ async function startServer() {
       const custs = await db.select().from(customers).where(eq(customers.id, req.params.id));
       if (custs.length === 0) return res.status(404).json({ error: "Customer not found" });
 
-      const rest = await loadOwnedRestaurant(req, res, custs[0].restaurantId);
+      const rest = await loadOwnedBusiness(req, res, custs[0].businessId);
       if (!rest) return; // response already sent
 
       await db.update(customers).set({ visits: 0, rewardStatus: "pending" }).where(eq(customers.id, req.params.id));
@@ -240,10 +240,10 @@ async function startServer() {
     }
   });
 
-  app.get("/api/restaurants/:id/employees", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.get("/api/businesses/:id/employees", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const restId = parseInt(req.params.id);
-      const e = await db.select().from(employees).where(eq(employees.restaurantId, restId));
+      const e = await db.select().from(employees).where(eq(employees.businessId, restId));
       res.json(e);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -257,13 +257,13 @@ async function startServer() {
     avatarUrl: z.string().max(2_000_000).optional(),
   });
 
-  app.post("/api/restaurants/:id/employees", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/employees", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createEmployeeSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const restId = parseInt(req.params.id);
       const newEmp = await db.insert(employees).values({
-        restaurantId: restId,
+        businessId: restId,
         name: parsed.data.name,
         role: parsed.data.role,
         phone: parsed.data.phone,
@@ -275,10 +275,10 @@ async function startServer() {
     }
   });
 
-  app.get("/api/restaurants/:id/services", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.get("/api/businesses/:id/services", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const restId = parseInt(req.params.id);
-      const svcs = await db.select().from(services).where(eq(services.restaurantId, restId));
+      const svcs = await db.select().from(services).where(eq(services.businessId, restId));
       res.json(svcs);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -293,13 +293,13 @@ async function startServer() {
     description: z.string().trim().max(1000).optional(),
   });
 
-  app.post("/api/restaurants/:id/services", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/services", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createServiceSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const restId = parseInt(req.params.id);
       const newSvc = await db.insert(services).values({
-        restaurantId: restId,
+        businessId: restId,
         name: parsed.data.name,
         category: parsed.data.category,
         price: parsed.data.price,
@@ -312,10 +312,10 @@ async function startServer() {
     }
   });
 
-  app.get("/api/restaurants/:id/appointments", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.get("/api/businesses/:id/appointments", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const restId = parseInt(req.params.id);
-      const apts = await db.select().from(appointments).where(eq(appointments.restaurantId, restId));
+      const apts = await db.select().from(appointments).where(eq(appointments.businessId, restId));
       res.json(apts);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -331,7 +331,7 @@ async function startServer() {
     status: z.enum(["scheduled", "completed", "cancelled", "in_progress"]).optional(),
   });
 
-  app.post("/api/restaurants/:id/appointments", requireAuth, requireOwnedRestaurant, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/appointments", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
@@ -340,7 +340,7 @@ async function startServer() {
       }
       const restId = parseInt(req.params.id);
       const newApt = await db.insert(appointments).values({
-        restaurantId: restId,
+        businessId: restId,
         customerId: parsed.data.customerId,
         employeeId: parsed.data.employeeId,
         serviceId: parsed.data.serviceId,
@@ -368,7 +368,7 @@ async function startServer() {
       const emp = await db.select().from(employees).where(eq(employees.id, empId));
       if (emp.length === 0) return res.status(404).json({ error: "Employee not found" });
 
-      const rest = await loadOwnedRestaurant(req, res, emp[0].restaurantId);
+      const rest = await loadOwnedBusiness(req, res, emp[0].businessId);
       if (!rest) return; // response already sent
 
       const parsed = clockSchema.safeParse(req.body);
@@ -400,7 +400,7 @@ async function startServer() {
       const emp = await db.select().from(employees).where(eq(employees.id, empId));
       if (emp.length === 0) return res.status(404).json({ error: "Employee not found" });
 
-      const rest = await loadOwnedRestaurant(req, res, emp[0].restaurantId);
+      const rest = await loadOwnedBusiness(req, res, emp[0].businessId);
       if (!rest) return; // response already sent
 
       const openLog = await db.select().from(timeLogs).where(

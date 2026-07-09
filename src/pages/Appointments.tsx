@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
 import { Calendar as CalendarIcon, Clock, User, Scissors, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { getRestaurant, getAppointments, getEmployees, getCustomers, getServices, createAppointment } from "../services/db";
+import { getBusiness, getAppointments, getEmployees, getCustomers, getServices, createAppointment } from "../services/db";
 
 export default function Appointments() {
   const { user } = useAuth();
@@ -12,7 +12,7 @@ export default function Appointments() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
-  const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [businessId, setBusinessId] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     customerId: '',
@@ -30,9 +30,9 @@ export default function Appointments() {
 
   const fetchData = async () => {
     try {
-      const rest = await getRestaurant(user!.uid);
+      const rest = await getBusiness(user!.uid);
       if (rest) {
-        setRestaurantId(rest.id);
+        setBusinessId(rest.id);
         const [apts, emps, custs, svcs] = await Promise.all([
           getAppointments(rest.id),
           getEmployees(rest.id),
@@ -51,10 +51,10 @@ export default function Appointments() {
 
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!restaurantId) return;
+    if (!businessId) return;
     setFormError("");
     try {
-      const newApt = await createAppointment(restaurantId, {
+      const newApt = await createAppointment(businessId, {
         customerId: formData.customerId,
         employeeId: parseInt(formData.employeeId),
         serviceId: parseInt(formData.serviceId),

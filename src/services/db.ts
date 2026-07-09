@@ -1,7 +1,7 @@
 import { Timestamp } from "firebase/firestore"; // We might want to remove this type completely if we migrate fully away from firestore types
 import { auth } from "../lib/firebase";
 
-export interface Restaurant {
+export interface Business {
   id: number;
   name: string;
   ownerUid: string;
@@ -10,7 +10,7 @@ export interface Restaurant {
 
 export interface Program {
   id: number;
-  restaurantId: number;
+  businessId: number;
   name: string;
   visitsRequired: number;
   rewardDescription: string;
@@ -19,7 +19,7 @@ export interface Program {
 
 export interface Customer {
   id: string;
-  restaurantId: number;
+  businessId: number;
   name: string;
   phone: string;
   visits: number;
@@ -31,14 +31,14 @@ export interface Customer {
 export interface Visit {
   id: number;
   customerId: string;
-  restaurantId: number;
+  businessId: number;
   date: string;
   validatedBy: string;
 }
 
 export interface Employee {
   id: number;
-  restaurantId: number;
+  businessId: number;
   name: string;
   role: string;
   phone: string;
@@ -67,36 +67,36 @@ const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
   return response.json();
 };
 
-export const getRestaurant = async (userId: string) => {
-  return fetchApi('/restaurant');
+export const getBusiness = async (userId: string) => {
+  return fetchApi('/business');
 };
 
-export const createRestaurant = async (userId: string, name: string) => {
-  return fetchApi('/restaurant', {
+export const createBusiness = async (userId: string, name: string) => {
+  return fetchApi('/business', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
 };
 
-export const getPrograms = async (restaurantId: number) => {
-  return fetchApi(`/restaurants/${restaurantId}/programs`);
+export const getPrograms = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/programs`);
 };
 
-export const createProgram = async (restaurantId: number, data: Omit<Program, "id" | "restaurantId" | "createdAt">) => {
-  return fetchApi(`/restaurants/${restaurantId}/programs`, {
+export const createProgram = async (businessId: number, data: Omit<Program, "id" | "businessId" | "createdAt">) => {
+  return fetchApi(`/businesses/${businessId}/programs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
 };
 
-export const getCustomers = async (restaurantId: number) => {
-  return fetchApi(`/restaurants/${restaurantId}/customers`);
+export const getCustomers = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/customers`);
 };
 
-export const createCustomer = async (restaurantId: number, data: Omit<Customer, "id" | "restaurantId" | "visits" | "rewardStatus" | "createdAt">) => {
-  return fetchApi(`/restaurants/${restaurantId}/customers`, {
+export const createCustomer = async (businessId: number, data: Omit<Customer, "id" | "businessId" | "visits" | "rewardStatus" | "createdAt">) => {
+  return fetchApi(`/businesses/${businessId}/customers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -109,7 +109,7 @@ export const getCustomer = async (customerId: string) => {
   return response.json();
 };
 
-export const recordVisit = async (customerId: string, restaurantId: number, staffId: string) => {
+export const recordVisit = async (customerId: string, businessId: number, staffId: string) => {
   return fetchApi(`/customers/${customerId}/visits`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -128,24 +128,24 @@ export const redeemReward = async (customerId: string) => {
   });
 };
 
-export const getEmployees = async (restaurantId: number) => {
-  return fetchApi(`/restaurants/${restaurantId}/employees`);
+export const getEmployees = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/employees`);
 };
 
-export const createEmployee = async (restaurantId: number, data: { name: string, role: string, phone: string, avatarUrl?: string }) => {
-  return fetchApi(`/restaurants/${restaurantId}/employees`, {
+export const createEmployee = async (businessId: number, data: { name: string, role: string, phone: string, avatarUrl?: string }) => {
+  return fetchApi(`/businesses/${businessId}/employees`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
 };
 
-export const getServices = async (restaurantId: number) => {
-  return fetchApi(`/restaurants/${restaurantId}/services`);
+export const getServices = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/services`);
 };
 
-export const createService = async (restaurantId: number, data: any) => {
-  return fetchApi(`/restaurants/${restaurantId}/services`, {
+export const createService = async (businessId: number, data: any) => {
+  return fetchApi(`/businesses/${businessId}/services`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
@@ -166,12 +166,12 @@ export const clockOut = async (employeeId: number) => {
   });
 };
 
-export const getAppointments = async (restaurantId: number) => {
-  return fetchApi(`/restaurants/${restaurantId}/appointments`);
+export const getAppointments = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/appointments`);
 };
 
-export const createAppointment = async (restaurantId: number, data: any) => {
-  return fetchApi(`/restaurants/${restaurantId}/appointments`, {
+export const createAppointment = async (businessId: number, data: any) => {
+  return fetchApi(`/businesses/${businessId}/appointments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
