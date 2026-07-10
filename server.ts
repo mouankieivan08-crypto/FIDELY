@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createServer as createViteServer } from "vite";
-import { createApiApp } from "./src/api";
+import { createApiApp } from "./src/api.js";
 
 // Local dev server: mounts the API routes plus Vite in middleware mode so the
 // frontend and API are served from a single origin on port 3000.

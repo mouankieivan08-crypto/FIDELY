@@ -1,9 +1,9 @@
 import express from "express";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { requireAuth, AuthRequest } from "./middleware/auth";
-import { supabase } from "./lib/supabase-server";
-import { toSnakeCase, toCamelCase, toCamelCaseArray } from "./lib/caseConvert";
+import { requireAuth, AuthRequest } from "./middleware/auth.js";
+import { supabase } from "./lib/supabase-server.js";
+import { toSnakeCase, toCamelCase, toCamelCaseArray } from "./lib/caseConvert.js";
 
 function unwrap<T>({ data, error }: { data: T | null; error: { message: string } | null }): T {
   if (error) throw new Error(error.message);
