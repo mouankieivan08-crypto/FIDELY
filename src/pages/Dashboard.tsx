@@ -213,48 +213,58 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">Total Visites</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.visits}</p>
-            <p className="text-xs font-medium text-gray-500 mt-1 flex items-center">Sur toute la période</p>
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+        {/* Clients */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <div className="h-11 w-11 bg-indigo-50 rounded-xl flex items-center justify-center">
+              <Users className="h-5 w-5 text-indigo-600" />
+            </div>
+            <span className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">Programme</span>
           </div>
-          <div className="h-12 w-12 bg-indigo-50 rounded-xl flex items-center justify-center">
-            <TrendingUp className="h-6 w-6 text-indigo-500" />
-          </div>
+          <p className="text-3xl font-bold text-gray-900 tracking-tight">{stats.customers}</p>
+          <p className="text-sm font-medium text-gray-500 mt-1">Clients fidèles</p>
         </div>
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">Total Clients</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.customers}</p>
-            <p className="text-xs font-medium text-gray-500 mt-1 flex items-center">Inscrits au programme</p>
+
+        {/* Visites */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <div className="h-11 w-11 bg-green-50 rounded-xl flex items-center justify-center">
+              <TrendingUp className="h-5 w-5 text-green-600" />
+            </div>
+            <span className="text-[11px] font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">Cumul</span>
           </div>
-          <div className="h-12 w-12 bg-gray-100 rounded-xl flex items-center justify-center">
-            <Users className="h-6 w-6 text-gray-700" />
-          </div>
+          <p className="text-3xl font-bold text-gray-900 tracking-tight">{stats.visits}</p>
+          <p className="text-sm font-medium text-gray-500 mt-1">Visites enregistrées</p>
         </div>
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">Rendez-vous ({period.toLowerCase()})</p>
-            <p className="text-2xl font-bold text-gray-900">{filteredAppointments.length}</p>
-            <p className="text-xs font-medium text-gray-500 mt-1 flex items-center">
-              {filteredAppointments.filter(a => a.status === 'scheduled').length} en attente
-            </p>
+
+        {/* Rendez-vous */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <div className="h-11 w-11 bg-amber-50 rounded-xl flex items-center justify-center">
+              <CalendarCheck className="h-5 w-5 text-amber-600" />
+            </div>
+            <span className="text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded-full capitalize">{period}</span>
           </div>
-          <div className="h-12 w-12 bg-gray-100 rounded-xl flex items-center justify-center">
-            <CalendarCheck className="h-6 w-6 text-gray-700" />
-          </div>
+          <p className="text-3xl font-bold text-gray-900 tracking-tight">{filteredAppointments.length}</p>
+          <p className="text-sm font-medium text-gray-500 mt-1">
+            {filteredAppointments.filter(a => a.status === 'scheduled').length} rendez-vous à venir
+          </p>
         </div>
-        <div className="bg-gray-950 rounded-2xl p-6 shadow-sm border border-gray-900 flex items-center justify-between text-white">
-          <div>
-            <p className="text-sm font-medium text-gray-400 mb-1">Employés présents</p>
-            <p className="text-2xl font-bold text-white">0 / {stats.employees}</p>
-            <p className="text-xs font-medium text-gray-500 mt-1 flex items-center">0 absence prévue</p>
+
+        {/* Récompenses à remettre (carte mise en avant) */}
+        <div className="rounded-2xl p-6 shadow-sm bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 text-white relative overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-[#d4af37]/10"></div>
+          <div className="flex items-center justify-between mb-4 relative">
+            <div className="h-11 w-11 bg-[#d4af37]/15 rounded-xl flex items-center justify-center">
+              <Award className="h-5 w-5 text-[#d4af37]" />
+            </div>
+            {stats.rewards > 0 && (
+              <span className="text-[11px] font-semibold text-gray-900 bg-[#d4af37] px-2 py-1 rounded-full animate-pulse">À remettre</span>
+            )}
           </div>
-          <div className="h-12 w-12 bg-gray-900 rounded-xl flex items-center justify-center border border-gray-800">
-            <Clock className="h-6 w-6 text-indigo-400" />
-          </div>
+          <p className="text-3xl font-bold tracking-tight relative">{stats.rewards}</p>
+          <p className="text-sm font-medium text-gray-400 mt-1 relative">Récompenses débloquées</p>
         </div>
       </div>
 
