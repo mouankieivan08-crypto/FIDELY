@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { getCustomer, getPrograms, getVisits, Customer, Program, Visit } from "../services/db";
 import QRCodeDisplay from "../components/QRCodeDisplay";
-import { CreditCard, CheckCircle, Gift, Calendar } from "lucide-react";
+import { CreditCard, CheckCircle, Gift, Calendar, Star } from "lucide-react";
 
 export default function CustomerView() {
   const { id } = useParams<{ id: string }>();
@@ -60,7 +60,25 @@ export default function CustomerView() {
 
         <div className="p-8 flex flex-col items-center">
           <QRCodeDisplay value={customer.id} size={220} />
-          <p className="mt-4 text-xs text-gray-400 font-mono tracking-wider">{customer.id}</p>
+          {customer.cardNumber && (
+            <p className="mt-3 text-sm font-mono font-bold text-gray-700 tracking-widest">N° {customer.cardNumber}</p>
+          )}
+
+          <div className="mt-4 w-full bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl p-4 flex items-center justify-between text-white shadow-sm">
+            <div className="flex items-center">
+              <Star className="h-7 w-7 text-amber-300 mr-3" />
+              <div>
+                <p className="text-xs text-indigo-100">Vos points fidélité</p>
+                <p className="text-2xl font-bold leading-tight">{(customer.points ?? 0).toLocaleString("fr-FR")}</p>
+              </div>
+            </div>
+            {visits[0]?.serviceName && (
+              <div className="text-right">
+                <p className="text-[11px] text-indigo-100">Dernière prestation</p>
+                <p className="text-sm font-semibold">{visits[0].serviceName}</p>
+              </div>
+            )}
+          </div>
 
           <div className="w-full mt-6 flex justify-center space-x-3">
             <button 
@@ -127,14 +145,22 @@ export default function CustomerView() {
               <p className="text-sm text-gray-500 italic text-center py-2">Aucune visite pour le moment.</p>
             ) : (
               visits.slice(0, 5).map((visit) => (
-                <div key={visit.id} className="flex justify-between items-center text-sm p-2 bg-white rounded-lg border border-gray-100 shadow-sm">
-                  <span className="text-gray-700 font-medium">
-                    {new Date(visit.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
-                  </span>
-                  <span className="text-green-600 font-medium flex items-center text-xs bg-green-50 px-2 py-1 rounded">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Vérifié
-                  </span>
+                <div key={visit.id} className="flex justify-between items-center text-sm p-2.5 bg-white rounded-lg border border-gray-100 shadow-sm">
+                  <div>
+                    <p className="text-gray-800 font-medium">{visit.serviceName || "Visite"}</p>
+                    <p className="text-xs text-gray-400">
+                      {new Date(visit.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  </div>
+                  {visit.points ? (
+                    <span className="text-indigo-600 font-semibold flex items-center text-xs bg-indigo-50 px-2 py-1 rounded">
+                      <Star className="h-3 w-3 mr-1 text-amber-400" />+{visit.points} pts
+                    </span>
+                  ) : (
+                    <span className="text-green-600 font-medium flex items-center text-xs bg-green-50 px-2 py-1 rounded">
+                      <CheckCircle className="h-3 w-3 mr-1" />Vérifié
+                    </span>
+                  )}
                 </div>
               ))
             )}

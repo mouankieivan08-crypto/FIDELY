@@ -215,6 +215,16 @@ export function createApiApp() {
 
       // Cryptographically random, unguessable card id (public card URLs rely on this being unenumerable)
       const id = "CARD-" + randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
+
+      // Short, human-readable card number for search/display (e.g. "D4451"), unique per business
+      let cardNumber = "";
+      for (let i = 0; i < 12; i++) {
+        const letter = "ABCDEFGHJKLMNPRSTUVWXYZ"[Math.floor(Math.random() * 22)];
+        const candidate = letter + Math.floor(1000 + Math.random() * 9000);
+        const clash = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId).eq("card_number", candidate).limit(1));
+        if (!clash || clash.length === 0) { cardNumber = candidate; break; }
+      }
+
       const result = unwrap(
         await supabase
           .from("customers")
@@ -224,6 +234,7 @@ export function createApiApp() {
             name: parsed.data.name,
             phone: parsed.data.phone,
             program_id: parsed.data.programId,
+            card_number: cardNumber,
           })
           .select()
           .single()
@@ -245,51 +256,85 @@ export function createApiApp() {
     }
   });
 
+  const validateVisitSchema = z.object({
+    serviceId: z.coerce.number().int().positive().optional(),
+    variantId: z.coerce.number().int().positive().optional(),
+  });
+
   app.post("/api/customers/:id/visits", requireAuth, async (req: AuthRequest, res) => {
     try {
       const customerId = req.params.id;
+      const parsed = validateVisitSchema.safeParse(req.body || {});
+      if (!parsed.success) return handleZodError(res, parsed.error);
 
       const custs = unwrap(await supabase.from("customers").select("*").eq("id", customerId).limit(1));
       if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
-      const customer = toCamelCase<{ businessId: number; programId: number; visits: number; rewardStatus: string }>(custs[0]);
+      const customer = toCamelCase<{ businessId: number; programId: number; visits: number; points: number; rewardStatus: string }>(custs[0]);
 
       const business = await loadOwnedBusiness(req, res, customer.businessId);
       if (!business) return; // response already sent
 
-      // Check double scan
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const recentVisits = unwrap(
-        await supabase.from("visits").select("id").eq("customer_id", customerId).gt("date", today.toISOString())
+      // Guard against accidental double validation (same customer within the last 60s)
+      const recent = unwrap(
+        await supabase.from("visits").select("id").eq("customer_id", customerId)
+          .gt("date", new Date(Date.now() - 60_000).toISOString())
       );
-      if (recentVisits && recentVisits.length > 0) {
-        return res.status(400).json({ error: "Customer already visited today." });
+      if (recent && recent.length > 0) {
+        return res.status(400).json({ error: "Visite déjà validée à l'instant. Patientez un instant." });
       }
 
-      const progs = unwrap(await supabase.from("programs").select("*").eq("id", customer.programId).limit(1));
-      if (!progs || progs.length === 0) return res.status(404).json({ error: "Program not found" });
-      const program = toCamelCase<{ visitsRequired: number }>(progs[0]);
+      // Resolve the performed service / variant → amount + points (1 point / 1000 FCFA)
+      let serviceId: number | null = null;
+      let serviceName: string | null = null;
+      let amountFcfa = 0;
+      if (parsed.data.variantId) {
+        const vr = unwrap(await supabase.from("service_variants").select("*").eq("id", parsed.data.variantId).limit(1));
+        if (vr && vr.length > 0) {
+          const variant = toCamelCase<{ serviceId: number; name: string; price: number }>(vr[0]);
+          serviceId = variant.serviceId;
+          amountFcfa = Math.round(variant.price / 100);
+          const sv = unwrap(await supabase.from("services").select("name").eq("id", variant.serviceId).limit(1));
+          serviceName = (sv && sv[0]?.name ? sv[0].name + " — " : "") + variant.name;
+        }
+      } else if (parsed.data.serviceId) {
+        const sv = unwrap(await supabase.from("services").select("*").eq("id", parsed.data.serviceId).eq("business_id", customer.businessId).limit(1));
+        if (sv && sv.length > 0) {
+          const service = toCamelCase<{ id: number; name: string; price: number }>(sv[0]);
+          serviceId = service.id;
+          serviceName = service.name;
+          amountFcfa = Math.round(service.price / 100);
+        }
+      }
+      const earnedPoints = Math.round(amountFcfa / 1000);
 
-      // add visit
+      const progs = unwrap(await supabase.from("programs").select("*").eq("id", customer.programId).limit(1));
+      const program = progs && progs.length > 0 ? toCamelCase<{ visitsRequired: number }>(progs[0]) : { visitsRequired: 999999 };
+
+      // Record the visit with full detail (anti-fraud: who, when, what, how much)
       unwrap(
-        await supabase.from("visits").insert({
-          customer_id: customerId,
-          business_id: customer.businessId,
-          validated_by: req.user!.uid,
-        })
+        await supabase.from("visits").insert(toSnakeCase({
+          customerId,
+          businessId: customer.businessId,
+          serviceId,
+          serviceName,
+          amount: amountFcfa || null,
+          points: earnedPoints,
+          validatedBy: req.user!.uid,
+        }))
       );
 
       const newVisits = customer.visits + 1;
+      const newPoints = (customer.points || 0) + earnedPoints;
       let newRewardStatus = customer.rewardStatus;
       if (newVisits >= program.visitsRequired) {
         newRewardStatus = "available";
       }
 
       unwrap(
-        await supabase.from("customers").update({ visits: newVisits, reward_status: newRewardStatus }).eq("id", customerId)
+        await supabase.from("customers").update({ visits: newVisits, points: newPoints, reward_status: newRewardStatus }).eq("id", customerId)
       );
 
-      res.json({ newVisits, newRewardStatus });
+      res.json({ newVisits, newPoints, earnedPoints, serviceName, amount: amountFcfa, newRewardStatus });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

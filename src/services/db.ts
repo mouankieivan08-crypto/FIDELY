@@ -22,6 +22,8 @@ export interface Customer {
   name: string;
   phone: string;
   visits: number;
+  points: number;
+  cardNumber?: string;
   programId: number;
   rewardStatus: "pending" | "available" | "redeemed";
   createdAt: string;
@@ -31,6 +33,10 @@ export interface Visit {
   id: number;
   customerId: string;
   businessId: number;
+  serviceId?: number;
+  serviceName?: string;
+  amount?: number;
+  points: number;
   date: string;
   validatedBy: string;
 }
@@ -95,7 +101,7 @@ export const getCustomers = async (businessId: number) => {
   return fetchApi(`/businesses/${businessId}/customers`);
 };
 
-export const createCustomer = async (businessId: number, data: Omit<Customer, "id" | "businessId" | "visits" | "rewardStatus" | "createdAt">) => {
+export const createCustomer = async (businessId: number, data: Omit<Customer, "id" | "businessId" | "visits" | "points" | "cardNumber" | "rewardStatus" | "createdAt">) => {
   return fetchApi(`/businesses/${businessId}/customers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -109,10 +115,11 @@ export const getCustomer = async (customerId: string) => {
   return response.json();
 };
 
-export const recordVisit = async (customerId: string, businessId: number, staffId: string) => {
+export const recordVisit = async (customerId: string, opts: { serviceId?: number; variantId?: number } = {}) => {
   return fetchApi(`/customers/${customerId}/visits`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
   });
 };
 

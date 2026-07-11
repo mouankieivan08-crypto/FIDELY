@@ -25,11 +25,13 @@ create table if not exists programs (
 );
 
 create table if not exists customers (
-  id text primary key,
+  id text primary key, -- token sécurisé (carte QR / URL publique)
   business_id integer not null references businesses(id),
   name text not null,
   phone text not null,
   visits integer not null default 0,
+  points integer not null default 0,
+  card_number text, -- ID court lisible (ex: D445)
   program_id integer not null references programs(id),
   reward_status text not null default 'pending',
   created_at timestamp default now()
@@ -39,6 +41,10 @@ create table if not exists visits (
   id serial primary key,
   customer_id text not null references customers(id),
   business_id integer not null references businesses(id),
+  service_id integer references services(id),
+  service_name text,
+  amount integer,
+  points integer not null default 0,
   date timestamp not null default now(),
   validated_by text not null references users(uid)
 );
