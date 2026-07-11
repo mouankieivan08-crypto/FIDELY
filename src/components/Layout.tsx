@@ -26,16 +26,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || "Utilisateur";
 
+  // Staff voit : Agenda, Clients, Catégories, Prestations, Fidélité, Scanner, Comptabilité.
+  // Admin voit tout (+ Tableau de bord, Employés, Personnel, Rapports).
   const navItems = [
-    { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard, adminOnly: false },
+    { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard, adminOnly: true },
     { name: "Agenda", href: "/appointments", icon: CalendarIcon, adminOnly: false },
     { name: "Clients", href: "/customers", icon: Users, adminOnly: false },
-    { name: "Employés", href: "/employees", icon: Briefcase, adminOnly: false },
+    { name: "Employés", href: "/employees", icon: Briefcase, adminOnly: true },
     { name: "Catégories", href: "/categories", icon: Tag, adminOnly: false },
     { name: "Prestations", href: "/services", icon: Scissors, adminOnly: false },
     { name: "Fidélité", href: "/programs", icon: CreditCard, adminOnly: false },
     { name: "Scanner", href: "/scanner", icon: ScanLine, adminOnly: false },
-    { name: "Comptabilité", href: "/accounting", icon: Wallet, adminOnly: true },
+    { name: "Comptabilité", href: "/accounting", icon: Wallet, adminOnly: false },
     { name: "Personnel", href: "/personnel", icon: Shield, adminOnly: true },
     { name: "Rapports", href: "/reports", icon: BarChart3, adminOnly: true },
   ].filter(item => !item.adminOnly || role === "admin");

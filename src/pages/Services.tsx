@@ -219,14 +219,28 @@ export default function Services() {
                             ))}
                           </div>
                         )}
-                        <form onSubmit={(e) => handleAddVariant(e, service.id)} className="flex flex-col sm:flex-row gap-2">
-                          <input required value={variantForm.name} onChange={e => setVariantForm({ ...variantForm, name: e.target.value })}
-                            placeholder="Nom variante (ex: Homme, Enfant...)" className="flex-1 text-sm border-gray-200 rounded-lg" />
-                          <input required type="number" min="0" value={variantForm.price} onChange={e => setVariantForm({ ...variantForm, price: e.target.value })}
-                            placeholder="Prix FCFA" className="w-28 text-sm border-gray-200 rounded-lg" />
-                          <input type="number" min="1" value={variantForm.duration} onChange={e => setVariantForm({ ...variantForm, duration: e.target.value })}
-                            placeholder="Durée min" className="w-24 text-sm border-gray-200 rounded-lg" />
-                          <button type="submit" className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium flex items-center justify-center"><Plus className="h-4 w-4" /></button>
+                        <form onSubmit={(e) => handleAddVariant(e, service.id)} className="bg-white rounded-lg border border-gray-100 p-3">
+                          <p className="text-xs font-semibold text-gray-700 mb-2">Ajouter une variante</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-medium text-gray-500 mb-1">Nom de la variante</label>
+                              <input required value={variantForm.name} onChange={e => setVariantForm({ ...variantForm, name: e.target.value })}
+                                placeholder="Ex: Homme, Enfant, Long..." className="w-full text-sm border-gray-200 rounded-lg" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-gray-500 mb-1">Prix (FCFA)</label>
+                              <input required type="number" min="0" value={variantForm.price} onChange={e => setVariantForm({ ...variantForm, price: e.target.value })}
+                                placeholder="Ex: 5000" className="w-full text-sm border-gray-200 rounded-lg" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-medium text-gray-500 mb-1">Durée (min) — optionnel</label>
+                              <input type="number" min="1" value={variantForm.duration} onChange={e => setVariantForm({ ...variantForm, duration: e.target.value })}
+                                placeholder="Ex: 30" className="w-full text-sm border-gray-200 rounded-lg" />
+                            </div>
+                          </div>
+                          <button type="submit" className="mt-3 w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium flex items-center justify-center">
+                            <Plus className="h-4 w-4 mr-1" /> Ajouter la variante
+                          </button>
                         </form>
                       </div>
                     )}

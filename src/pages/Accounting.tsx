@@ -90,19 +90,6 @@ export default function Accounting() {
 
   if (loading) return <Layout><div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" /></div></Layout>;
 
-  // Accounting is admin-only on the backend; show a friendly message to staff.
-  if (business && business.role && business.role !== "admin") {
-    return (
-      <Layout>
-        <div className="max-w-md mx-auto mt-16 bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center">
-          <Lock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-          <h2 className="text-lg font-bold text-gray-900">Accès réservé</h2>
-          <p className="text-gray-500 mt-1">La comptabilité est réservée aux administrateurs.</p>
-        </div>
-      </Layout>
-    );
-  }
-
   return (
     <Layout>
       <div className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">

@@ -1,22 +1,25 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import Layout from "../components/Layout";
 import Webcam from "react-webcam";
-import { Camera, CheckCircle, Clock, Briefcase, Plus, User, Tag, Key, X } from "lucide-react";
+import { Camera, CheckCircle, Clock, Briefcase, Plus, User, Tag, Key, X, Trash2, History, Lock, LogIn, LogOut } from "lucide-react";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, getEmployees, createEmployee, clockIn, clockOut, Employee } from "../services/db";
+import { getBusiness, getEmployees, createEmployee, deleteEmployee, getTimeLogs, clockIn, clockOut, Employee } from "../services/db";
 
 export default function Employees() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'list' | 'pointage'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'pointage' | 'historique'>('list');
   const [pointageStatus, setPointageStatus] = useState<'idle' | 'capturing' | 'verifying' | 'success'>('idle');
   const [pointageError, setPointageError] = useState("");
   const [pointageEmployeeId, setPointageEmployeeId] = useState<string>('');
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [timeLogs, setTimeLogs] = useState<any[]>([]);
+  const [role, setRole] = useState<string>('admin');
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [formError, setFormError] = useState("");
   const [businessId, setBusinessId] = useState<number | null>(null);
-  
+
   const [formData, setFormData] = useState({
     name: '',
     role: '',
@@ -25,7 +28,7 @@ export default function Employees() {
   });
   const [isCapturingAvatar, setIsCapturingAvatar] = useState(false);
   const avatarWebcamRef = useRef<any>(null);
-  
+
   const webcamRef = useRef<any>(null);
 
   useEffect(() => {
@@ -35,8 +38,12 @@ export default function Employees() {
           const rest = await getBusiness(user.id);
           if (rest) {
             setBusinessId(rest.id);
+            if (rest.role) setRole(rest.role);
             const emps = await getEmployees(rest.id);
             setEmployees(emps);
+            if (rest.role === 'admin') {
+              getTimeLogs(rest.id).then(setTimeLogs).catch(() => {});
+            }
           }
         } catch (error) {
           console.error("Error loading employees", error);
@@ -47,6 +54,16 @@ export default function Employees() {
     };
     loadData();
   }, [user]);
+
+  const handleDeleteEmployee = async (id: number) => {
+    if (!confirm("Supprimer cet employé ? Son historique de pointage sera aussi supprimé.")) return;
+    try {
+      await deleteEmployee(id);
+      setEmployees(employees.filter(e => e.id !== id));
+    } catch (error) { console.error(error); }
+  };
+
+  const refreshTimeLogs = () => { if (businessId) getTimeLogs(businessId).then(setTimeLogs).catch(() => {}); };
 
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,6 +107,7 @@ export default function Employees() {
         await clockOut(parseInt(pointageEmployeeId));
       }
       setPointageStatus('success');
+      refreshTimeLogs();
       setTimeout(() => setPointageStatus('idle'), 3000);
     } catch (error) {
       setPointageStatus('idle');
@@ -97,28 +115,90 @@ export default function Employees() {
     }
   }, [webcamRef, pointageEmployeeId]);
 
+  if (loading) return <Layout><div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" /></div></Layout>;
+
+  // Gestion des employés réservée aux administrateurs
+  if (role !== "admin") {
+    return (
+      <Layout>
+        <div className="max-w-md mx-auto mt-16 bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center">
+          <Lock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+          <h2 className="text-lg font-bold text-gray-900">Accès réservé</h2>
+          <p className="text-gray-500 mt-1">La gestion des employés est réservée aux administrateurs.</p>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
-      <div className="mb-8 flex justify-between items-end">
+      <div className="mb-8 flex flex-col sm:flex-row justify-between sm:items-end gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Employés</h1>
           <p className="text-sm text-gray-500 mt-1">Gérez votre équipe et les pointages</p>
         </div>
         <div className="flex bg-gray-200 p-1 rounded-lg">
-          <button 
+          <button
             onClick={() => setActiveTab('pointage')}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'pointage' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:text-gray-900'}`}
           >
             Pointage
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('list')}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'list' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:text-gray-900'}`}
           >
             Liste
           </button>
+          <button
+            onClick={() => { setActiveTab('historique'); refreshTimeLogs(); }}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'historique' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:text-gray-900'}`}
+          >
+            Historique
+          </button>
         </div>
       </div>
+
+      {activeTab === 'historique' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">
+            <History className="h-4 w-4 text-indigo-500 mr-2" />
+            <span className="text-sm font-medium text-gray-900">Historique des pointages</span>
+          </div>
+          {timeLogs.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">Aucun pointage enregistré pour le moment.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
+                    <th className="px-6 py-3">Employé</th>
+                    <th className="px-6 py-3">Arrivée</th>
+                    <th className="px-6 py-3">Départ</th>
+                    <th className="px-6 py-3">Photo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {timeLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{log.employeeName}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        <span className="flex items-center"><LogIn className="h-3.5 w-3.5 mr-1 text-green-500" />{log.clockInTime ? new Date(log.clockInTime).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {log.clockOutTime ? <span className="flex items-center"><LogOut className="h-3.5 w-3.5 mr-1 text-gray-400" />{new Date(log.clockOutTime).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> : <span className="text-green-600 text-xs font-medium">En cours</span>}
+                      </td>
+                      <td className="px-6 py-4">
+                        {log.selfieUrl ? <img src={log.selfieUrl} alt="pointage" className="h-9 w-9 rounded-lg object-cover border border-gray-200" /> : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {activeTab === 'pointage' && (
         <div className="max-w-md mx-auto">
@@ -239,6 +319,7 @@ export default function Employees() {
                       <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Nom complet</th>
                       <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Rôle</th>
                       <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Téléphone</th>
+                      <th className="px-6 py-4"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -263,6 +344,11 @@ export default function Employees() {
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
                           {emp.phone || 'Non renseigné'}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button onClick={() => handleDeleteEmployee(emp.id)} title="Supprimer" className="text-gray-300 hover:text-red-500">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </td>
                       </tr>
                     ))}

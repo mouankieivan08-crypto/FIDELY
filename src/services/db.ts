@@ -159,6 +159,14 @@ export const createService = async (businessId: number, data: any) => {
   });
 };
 
+export const deleteEmployee = async (employeeId: number) => {
+  return fetchApi(`/employees/${employeeId}`, { method: 'DELETE' });
+};
+
+export const getTimeLogs = async (businessId: number) => {
+  return fetchApi(`/businesses/${businessId}/time-logs`);
+};
+
 export const clockIn = async (employeeId: number, data: { selfieUrl?: string; locationLat?: string; locationLng?: string }) => {
   return fetchApi(`/employees/${employeeId}/clock-in`, {
     method: 'POST',

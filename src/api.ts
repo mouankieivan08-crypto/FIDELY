@@ -382,7 +382,7 @@ export function createApiApp() {
     avatarUrl: z.string().max(2_000_000).optional(),
   });
 
-  app.post("/api/businesses/:id/employees", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/employees", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const parsed = createEmployeeSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
@@ -400,6 +400,45 @@ export function createApiApp() {
           .single()
       );
       res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Delete an employee (admin only). Cleans up dependent rows first.
+  app.delete("/api/employees/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const empId = parseInt(req.params.id);
+      const rows = unwrap(await supabase.from("employees").select("*").eq("id", empId).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const employee = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, employee.businessId);
+      if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
+      // Remove dependent rows / references before deleting
+      unwrap(await supabase.from("time_logs").delete().eq("employee_id", empId));
+      unwrap(await supabase.from("appointments").update({ employee_id: null }).eq("employee_id", empId));
+      unwrap(await supabase.from("employees").delete().eq("id", empId));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Clock-in / clock-out history for the whole business (admin only, traçabilité)
+  app.get("/api/businesses/:id/time-logs", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      const emps = unwrap(await supabase.from("employees").select("id, name").eq("business_id", businessId));
+      const empIds = (emps || []).map((e: any) => e.id);
+      if (empIds.length === 0) return res.json([]);
+      const logs = unwrap(
+        await supabase.from("time_logs").select("*").in("employee_id", empIds).order("clock_in_time", { ascending: false }).limit(500)
+      );
+      const nameById: Record<number, string> = {};
+      (emps || []).forEach((e: any) => { nameById[e.id] = e.name; });
+      const enriched = (logs || []).map((l: any) => ({ ...toCamelCase(l), employeeName: nameById[l.employee_id] || "—" }));
+      res.json(enriched);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -677,9 +716,9 @@ export function createApiApp() {
     }
   });
 
-  // --- Accounting / transactions (admin only) ---
+  // --- Accounting / transactions (owner + members) ---
 
-  app.get("/api/businesses/:id/transactions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/businesses/:id/transactions", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       let query = supabase.from("transactions").select("*").eq("business_id", parseInt(req.params.id));
       if (typeof req.query.from === "string") query = query.gte("date", req.query.from);
@@ -699,7 +738,7 @@ export function createApiApp() {
     date: z.coerce.date().optional(),
   });
 
-  app.post("/api/businesses/:id/transactions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/transactions", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createTransactionSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
@@ -729,7 +768,6 @@ export function createApiApp() {
       const txn = toCamelCase<{ businessId: number }>(rows[0]);
       const access = await loadAccess(req, res, txn.businessId);
       if (!access) return;
-      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
       unwrap(await supabase.from("transactions").delete().eq("id", parseInt(req.params.id)));
       res.json({ success: true });
     } catch (error) {
