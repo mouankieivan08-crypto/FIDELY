@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
-import { Plus, Search, Tag, Clock, X, Trash2 } from "lucide-react";
+import { Plus, Search, Tag, Clock, X, Trash2, ChevronDown, ChevronUp, Layers } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, getServices, createService, getCategories, createCategory, deleteCategory, Category } from "../services/db";
+import { getBusiness, getServices, createService, getCategories, createCategory, deleteCategory, getVariants, createVariant, deleteVariant, Category, ServiceVariant } from "../services/db";
 
 export default function Services() {
   const { user } = useAuth();
@@ -14,6 +14,10 @@ export default function Services() {
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [newCategory, setNewCategory] = useState("");
   const [search, setSearch] = useState("");
+
+  const [variantsByService, setVariantsByService] = useState<Record<number, ServiceVariant[]>>({});
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [variantForm, setVariantForm] = useState({ name: '', price: '', duration: '' });
 
   const [formData, setFormData] = useState({
     name: '',
@@ -36,10 +40,36 @@ export default function Services() {
         const [svcs, cats] = await Promise.all([getServices(rest.id), getCategories(rest.id)]);
         setServicesList(svcs);
         setCategoriesList(cats);
+        // Load variants for all services in parallel
+        const entries = await Promise.all(
+          svcs.map(async (s: any) => [s.id, await getVariants(s.id).catch(() => [])] as const)
+        );
+        setVariantsByService(Object.fromEntries(entries));
       }
     } catch (error) {
       console.error("Error fetching services:", error);
     }
+  };
+
+  const handleAddVariant = async (e: React.FormEvent, serviceId: number) => {
+    e.preventDefault();
+    if (!variantForm.name.trim() || !variantForm.price) return;
+    try {
+      const v = await createVariant(serviceId, {
+        name: variantForm.name.trim(),
+        price: parseInt(variantForm.price) * 100,
+        duration: variantForm.duration ? parseInt(variantForm.duration) : undefined,
+      });
+      setVariantsByService(prev => ({ ...prev, [serviceId]: [...(prev[serviceId] || []), v] }));
+      setVariantForm({ name: '', price: '', duration: '' });
+    } catch (error) { console.error(error); }
+  };
+
+  const handleDeleteVariant = async (serviceId: number, variantId: number) => {
+    try {
+      await deleteVariant(variantId);
+      setVariantsByService(prev => ({ ...prev, [serviceId]: (prev[serviceId] || []).filter(v => v.id !== variantId) }));
+    } catch (error) { console.error(error); }
   };
 
   const handleAddCategory = async (e: React.FormEvent) => {
@@ -141,30 +171,68 @@ export default function Services() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             {filteredServices.length === 0 ? (
               <div className="col-span-full bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
                 <p className="text-gray-500">Aucune prestation dans cette catégorie.</p>
               </div>
             ) : (
-              filteredServices.map((service, i) => (
-                <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow cursor-pointer group">
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="text-lg font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">{service.name}</h3>
-                    <span className="text-lg font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-md">{service.price / 100} FCFA</span>
-                  </div>
-                  <div className="flex items-center text-sm text-gray-500 space-x-4 mt-3">
-                    <div className="flex items-center">
-                      <Tag className="h-4 w-4 mr-1 text-gray-400" />
-                      {service.category}
+              filteredServices.map((service) => {
+                const variants = variantsByService[service.id] || [];
+                const isOpen = expandedId === service.id;
+                return (
+                  <div key={service.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-5">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-lg font-bold text-gray-900">{service.name}</h3>
+                        <span className="text-lg font-bold text-gray-900 bg-gray-50 px-2 py-1 rounded-md">{service.price / 100} FCFA</span>
+                      </div>
+                      <div className="flex items-center text-sm text-gray-500 space-x-4 mt-3">
+                        <div className="flex items-center"><Tag className="h-4 w-4 mr-1 text-gray-400" />{service.category}</div>
+                        <div className="flex items-center"><Clock className="h-4 w-4 mr-1 text-gray-400" />{service.duration} min</div>
+                      </div>
+                      <button
+                        onClick={() => { setExpandedId(isOpen ? null : service.id); setVariantForm({ name: '', price: '', duration: '' }); }}
+                        className="mt-4 flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                      >
+                        <Layers className="h-4 w-4 mr-1.5" />
+                        {variants.length > 0 ? `${variants.length} variante(s)` : "Ajouter des variantes"}
+                        {isOpen ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />}
+                      </button>
                     </div>
-                    <div className="flex items-center">
-                      <Clock className="h-4 w-4 mr-1 text-gray-400" />
-                      {service.duration} min
-                    </div>
+
+                    {isOpen && (
+                      <div className="border-t border-gray-100 bg-gray-50 p-5">
+                        {variants.length > 0 && (
+                          <div className="space-y-2 mb-4">
+                            {variants.map(v => (
+                              <div key={v.id} className="flex items-center justify-between bg-white rounded-lg border border-gray-100 px-3 py-2">
+                                <div>
+                                  <span className="text-sm font-medium text-gray-900">{v.name}</span>
+                                  {v.duration ? <span className="text-xs text-gray-400 ml-2">{v.duration} min</span> : null}
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-sm font-bold text-gray-900">{v.price / 100} FCFA</span>
+                                  <button onClick={() => handleDeleteVariant(service.id, v.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <form onSubmit={(e) => handleAddVariant(e, service.id)} className="flex flex-col sm:flex-row gap-2">
+                          <input required value={variantForm.name} onChange={e => setVariantForm({ ...variantForm, name: e.target.value })}
+                            placeholder="Nom variante (ex: Homme, Enfant...)" className="flex-1 text-sm border-gray-200 rounded-lg" />
+                          <input required type="number" min="0" value={variantForm.price} onChange={e => setVariantForm({ ...variantForm, price: e.target.value })}
+                            placeholder="Prix FCFA" className="w-28 text-sm border-gray-200 rounded-lg" />
+                          <input type="number" min="1" value={variantForm.duration} onChange={e => setVariantForm({ ...variantForm, duration: e.target.value })}
+                            placeholder="Durée min" className="w-24 text-sm border-gray-200 rounded-lg" />
+                          <button type="submit" className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium flex items-center justify-center"><Plus className="h-4 w-4" /></button>
+                        </form>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

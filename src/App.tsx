@@ -9,6 +9,7 @@ import CustomerView from "./pages/CustomerView";
 import Employees from "./pages/Employees";
 import Appointments from "./pages/Appointments";
 import Services from "./pages/Services";
+import Categories from "./pages/Categories";
 import Reports from "./pages/Reports";
 import Accounting from "./pages/Accounting";
 import Personnel from "./pages/Personnel";
@@ -86,6 +87,14 @@ export default function App() {
             element={
               <PrivateRoute>
                 <Services />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/categories"
+            element={
+              <PrivateRoute>
+                <Categories />
               </PrivateRoute>
             }
           />

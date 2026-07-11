@@ -197,6 +197,32 @@ export const deleteCategory = async (categoryId: number) => {
   return fetchApi(`/categories/${categoryId}`, { method: 'DELETE' });
 };
 
+// --- Service variants ---
+export interface ServiceVariant {
+  id: number;
+  serviceId: number;
+  name: string;
+  price: number; // cents
+  duration?: number;
+  createdAt: string;
+}
+
+export const getVariants = async (serviceId: number) => {
+  return fetchApi(`/services/${serviceId}/variants`);
+};
+
+export const createVariant = async (serviceId: number, data: { name: string; price: number; duration?: number }) => {
+  return fetchApi(`/services/${serviceId}/variants`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteVariant = async (variantId: number) => {
+  return fetchApi(`/variants/${variantId}`, { method: 'DELETE' });
+};
+
 // --- Accounting / transactions ---
 export interface Transaction {
   id: number;

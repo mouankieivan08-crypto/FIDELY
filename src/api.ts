@@ -550,6 +550,72 @@ export function createApiApp() {
     }
   });
 
+  // --- Service variants ---
+
+  // Loads a service and verifies the caller can access its business.
+  const loadServiceAccess = async (req: AuthRequest, res: express.Response, serviceId: number) => {
+    const rows = unwrap(await supabase.from("services").select("*").eq("id", serviceId).limit(1));
+    if (!rows || rows.length === 0) {
+      res.status(404).json({ error: "Service not found" });
+      return null;
+    }
+    const service = toCamelCase<{ businessId: number }>(rows[0]);
+    const access = await loadAccess(req, res, service.businessId);
+    if (!access) return null;
+    return { service, access };
+  };
+
+  app.get("/api/services/:id/variants", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const ctx = await loadServiceAccess(req, res, parseInt(req.params.id));
+      if (!ctx) return;
+      const rows = unwrap(await supabase.from("service_variants").select("*").eq("service_id", parseInt(req.params.id)));
+      res.json(toCamelCaseArray(rows || []));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const createVariantSchema = z.object({
+    name: z.string().trim().min(1).max(200),
+    price: z.coerce.number().int().min(0),
+    duration: z.coerce.number().int().min(1).max(1440).optional(),
+  });
+
+  app.post("/api/services/:id/variants", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const ctx = await loadServiceAccess(req, res, parseInt(req.params.id));
+      if (!ctx) return;
+      const parsed = createVariantSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(
+        await supabase.from("service_variants").insert({
+          service_id: parseInt(req.params.id),
+          name: parsed.data.name,
+          price: parsed.data.price,
+          duration: parsed.data.duration,
+        }).select().single()
+      );
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete("/api/variants/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("service_variants").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const variant = toCamelCase<{ serviceId: number }>(rows[0]);
+      const ctx = await loadServiceAccess(req, res, variant.serviceId);
+      if (!ctx) return;
+      unwrap(await supabase.from("service_variants").delete().eq("id", parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
   app.delete("/api/categories/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
       const rows = unwrap(await supabase.from("categories").select("*").eq("id", parseInt(req.params.id)).limit(1));
