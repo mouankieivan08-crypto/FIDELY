@@ -11,7 +11,8 @@ export default function Personnel() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [formError, setFormError] = useState("");
-  const [form, setForm] = useState({ email: "", name: "", role: "staff" as "admin" | "staff" });
+  const [form, setForm] = useState({ email: "", password: "", name: "", role: "staff" as "admin" | "staff" });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (user) load(); }, [user]);
 
@@ -27,15 +28,17 @@ export default function Personnel() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     setFormError("");
     try {
-      await createMember(business.id, { email: form.email, name: form.name, role: form.role });
+      await createMember(business.id, { email: form.email, password: form.password, name: form.name, role: form.role });
       setShowModal(false);
-      setForm({ email: "", name: "", role: "staff" });
+      setForm({ email: "", password: "", name: "", role: "staff" });
       setMembers(await getMembers(business.id));
     } catch (err) {
       setFormError((err as Error).message || "Échec de l'ajout.");
-    }
+    } finally { setSaving(false); }
   };
 
   const handleRole = async (id: number, role: "admin" | "staff") => {
@@ -74,8 +77,8 @@ export default function Personnel() {
       </div>
 
       <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-6 text-sm text-indigo-800">
-        <strong>Comment ça marche :</strong> invitez une personne par e-mail et choisissez son rôle.
-        Elle se connecte ensuite sur Fidely avec ce même e-mail (Google ou mot de passe) et accède automatiquement à votre établissement.
+        <strong>Comment ça marche :</strong> créez un accès avec un e-mail + un mot de passe (l'e-mail n'a pas besoin d'exister vraiment) et choisissez le rôle.
+        Le membre se connecte sur la page de connexion de Fidely avec ces identifiants et accède automatiquement à votre établissement.
         Les <strong>administrateurs</strong> ont accès à tout ; le <strong>staff</strong> n'a pas accès à la comptabilité ni à la gestion du personnel.
       </div>
 
@@ -152,6 +155,14 @@ export default function Personnel() {
                 </div>
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mot de passe</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Lock className="h-5 w-5 text-gray-400" /></div>
+                  <input type="text" required minLength={6} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm" placeholder="Au moins 6 caractères" />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Le membre se connectera avec cet e-mail + ce mot de passe.</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom (optionnel)</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><User className="h-5 w-5 text-gray-400" /></div>
@@ -165,7 +176,7 @@ export default function Personnel() {
                   <option value="admin">Administrateur (accès complet)</option>
                 </select>
               </div>
-              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">Envoyer l'invitation</button>
+              <button type="submit" disabled={saving} className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50">{saving ? "Création..." : "Créer le membre"}</button>
             </form>
           </div>
         </div>

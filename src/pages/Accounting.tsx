@@ -65,8 +65,12 @@ export default function Accounting() {
   const debits = transactions.filter(t => t.type === "debit").reduce((s, t) => s + t.amount, 0);
   const net = credits - debits;
 
+  const [saving, setSaving] = useState(false);
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     setFormError("");
     try {
       await createTransaction(business.id, {
@@ -81,7 +85,7 @@ export default function Accounting() {
       loadTransactions(business.id);
     } catch (err) {
       setFormError((err as Error).message || "Échec de l'enregistrement.");
-    }
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async (id: number) => {
@@ -218,7 +222,7 @@ export default function Accounting() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                 <input type="date" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm" />
               </div>
-              <button type="submit" className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">Enregistrer</button>
+              <button type="submit" disabled={saving} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50">{saving ? "Enregistrement..." : "Enregistrer"}</button>
             </form>
           </div>
         </div>

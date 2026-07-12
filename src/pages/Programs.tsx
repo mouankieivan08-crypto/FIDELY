@@ -10,6 +10,7 @@ export default function Programs() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [newProgram, setNewProgram] = useState({
     name: "",
     visitsRequired: 5,
@@ -38,6 +39,8 @@ export default function Programs() {
 
   const handleCreateProgram = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     setFormError("");
     try {
       const rest = await getBusiness(user!.id);
@@ -50,7 +53,7 @@ export default function Programs() {
     } catch (error) {
       console.error("Error creating program:", error);
       setFormError((error as Error).message || "Échec de la création du programme.");
-    }
+    } finally { setSaving(false); }
   };
 
   return (

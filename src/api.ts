@@ -788,6 +788,7 @@ export function createApiApp() {
 
   const createMemberSchema = z.object({
     email: z.string().trim().email().max(200),
+    password: z.string().min(6).max(100),
     name: z.string().trim().max(200).optional(),
     role: z.enum(["admin", "staff"]).optional(),
   });
@@ -796,10 +797,27 @@ export function createApiApp() {
     try {
       const parsed = createMemberSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
+      const email = parsed.data.email.toLowerCase();
+
+      // Create the login account directly (no Google needed). If it already
+      // exists, reuse it. email_confirm so the member can sign in immediately.
+      let uid: string | null = null;
+      const created = await supabase.auth.admin.createUser({ email, password: parsed.data.password, email_confirm: true });
+      if (created.data?.user) {
+        uid = created.data.user.id;
+      } else {
+        const list = await supabase.auth.admin.listUsers();
+        const existing = list.data.users.find((u) => u.email === email);
+        if (existing) uid = existing.id;
+        else return res.status(400).json({ error: created.error?.message || "Impossible de créer le compte." });
+      }
+      if (uid) unwrap(await supabase.from("users").upsert({ uid, email }, { onConflict: "uid" }));
+
       const result = unwrap(
         await supabase.from("members").insert({
           business_id: parseInt(req.params.id),
-          email: parsed.data.email.toLowerCase(),
+          email,
+          uid,
           name: parsed.data.name,
           role: parsed.data.role ?? "staff",
         }).select().single()

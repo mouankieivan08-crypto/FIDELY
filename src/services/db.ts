@@ -285,7 +285,7 @@ export const getMembers = async (businessId: number) => {
   return fetchApi(`/businesses/${businessId}/members`);
 };
 
-export const createMember = async (businessId: number, data: { email: string; name?: string; role?: "admin" | "staff" }) => {
+export const createMember = async (businessId: number, data: { email: string; password: string; name?: string; role?: "admin" | "staff" }) => {
   return fetchApi(`/businesses/${businessId}/members`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
