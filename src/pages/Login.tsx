@@ -123,14 +123,8 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="mt-4 text-center text-sm text-gray-500">
-            {mode === "signin" ? "Pas encore de compte ?" : "Vous avez déjà un compte ?"}{" "}
-            <button
-              onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setInfo(""); }}
-              className="text-indigo-600 font-medium hover:underline"
-            >
-              {mode === "signin" ? "Créer un compte" : "Se connecter"}
-            </button>
+          <p className="mt-4 text-center text-xs text-gray-400">
+            Accès réservé. Contactez l'administrateur pour obtenir vos identifiants.
           </p>
         </div>
       </div>

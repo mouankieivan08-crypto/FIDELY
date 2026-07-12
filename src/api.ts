@@ -140,6 +140,11 @@ export function createApiApp() {
       const parsed = createBusinessSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       await syncUser(req.user!.uid, req.user!.email);
+      // Application mono-client : une seule entreprise autorisée.
+      const anyBiz = unwrap(await supabase.from("businesses").select("id").limit(1));
+      if (anyBiz && anyBiz.length > 0) {
+        return res.status(403).json({ error: "Une entreprise existe déjà sur cette application." });
+      }
       const result = unwrap(
         await supabase.from("businesses").insert({ name: parsed.data.name, owner_uid: req.user!.uid }).select().single()
       );
