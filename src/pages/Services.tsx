@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
 import Layout from "../components/Layout";
-import { Plus, Search, Tag, Clock, X, Trash2, ChevronDown, ChevronUp, Layers } from "lucide-react";
+import { Plus, Search, Tag, Clock, X, Trash2, ChevronDown, ChevronUp, Layers, ShoppingBag, Pencil } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, getServices, createService, getCategories, createCategory, deleteCategory, getVariants, createVariant, deleteVariant, Category, ServiceVariant } from "../services/db";
+import { getBusiness, getServices, createService, updateService, deleteService, getCategories, createCategory, deleteCategory, getVariants, createVariant, deleteVariant, Category, ServiceVariant } from "../services/db";
 
 export default function Services() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [servicesList, setServicesList] = useState<any[]>([]);
@@ -98,19 +101,43 @@ export default function Services() {
     setSaving(true);
     setFormError("");
     try {
-      const newSvc = await createService(businessId, {
+      const payload = {
         name: formData.name,
         category: formData.category,
         price: parseInt(formData.price) * 100, // store in cents
         duration: parseInt(formData.duration)
-      });
-      setServicesList([...servicesList, newSvc]);
+      };
+      if (editingId) {
+        const updated = await updateService(editingId, payload);
+        setServicesList(servicesList.map(s => s.id === editingId ? updated : s));
+      } else {
+        const newSvc = await createService(businessId, payload);
+        setServicesList([...servicesList, newSvc]);
+      }
       setShowModal(false);
+      setEditingId(null);
       setFormData({ name: '', category: categoriesList[0]?.name || '', price: '', duration: '' });
     } catch (error) {
-      console.error("Error creating service:", error);
-      setFormError((error as Error).message || "Échec de la création de la prestation.");
+      console.error("Error saving service:", error);
+      setFormError((error as Error).message || "Échec de l'enregistrement de la prestation.");
     } finally { setSaving(false); }
+  };
+
+  const openEdit = (service: any) => {
+    setEditingId(service.id);
+    setFormData({ name: service.name, category: service.category || '', price: String(service.price / 100), duration: String(service.duration) });
+    setFormError("");
+    setShowModal(true);
+  };
+
+  const handleDeleteService = async (id: number) => {
+    if (!confirm("Supprimer cette prestation et ses variantes ?")) return;
+    try { await deleteService(id); setServicesList(servicesList.filter(s => s.id !== id)); } catch (e) { console.error(e); }
+  };
+
+  const handleSell = (serviceId: number) => {
+    sessionStorage.setItem("fidely_pending_service", String(serviceId));
+    navigate("/customers");
   };
 
   return (
@@ -121,7 +148,7 @@ export default function Services() {
           <p className="text-sm text-gray-500 mt-1">Catalogue de vos services et tarifs</p>
         </div>
         <button
-          onClick={() => { setFormError(""); setShowModal(true); }}
+          onClick={() => { setEditingId(null); setFormData({ name: '', category: categoriesList[0]?.name || '', price: '', duration: '' }); setFormError(""); setShowModal(true); }}
           className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
         >
           <Plus className="h-4 w-4 mr-2" /> Nouvelle Prestation
@@ -193,14 +220,23 @@ export default function Services() {
                         <div className="flex items-center"><Tag className="h-4 w-4 mr-1 text-gray-400" />{service.category}</div>
                         <div className="flex items-center"><Clock className="h-4 w-4 mr-1 text-gray-400" />{service.duration} min</div>
                       </div>
-                      <button
-                        onClick={() => { setExpandedId(isOpen ? null : service.id); setVariantForm({ name: '', price: '', duration: '' }); }}
-                        className="mt-4 flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700"
-                      >
-                        <Layers className="h-4 w-4 mr-1.5" />
-                        {variants.length > 0 ? `${variants.length} variante(s)` : "Ajouter des variantes"}
-                        {isOpen ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />}
-                      </button>
+                      <div className="flex items-center justify-between mt-4">
+                        <button
+                          onClick={() => { setExpandedId(isOpen ? null : service.id); setVariantForm({ name: '', price: '', duration: '' }); }}
+                          className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                        >
+                          <Layers className="h-4 w-4 mr-1.5" />
+                          {variants.length > 0 ? `${variants.length} variante(s)` : "Ajouter des variantes"}
+                          {isOpen ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />}
+                        </button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => handleSell(service.id)} title="Vendre cette prestation à un client" className="flex items-center px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100">
+                            <ShoppingBag className="h-3.5 w-3.5 mr-1" /> Vendre
+                          </button>
+                          <button onClick={() => openEdit(service)} title="Modifier" className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
+                          <button onClick={() => handleDeleteService(service.id)} title="Supprimer" className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+                        </div>
+                      </div>
                     </div>
 
                     {isOpen && (
@@ -258,7 +294,7 @@ export default function Services() {
         <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="text-lg font-bold text-gray-900">Nouvelle Prestation</h3>
+              <h3 className="text-lg font-bold text-gray-900">{editingId ? "Modifier la prestation" : "Nouvelle Prestation"}</h3>
               <button 
                 onClick={() => setShowModal(false)}
                 className="text-gray-400 hover:text-gray-600 transition-colors"

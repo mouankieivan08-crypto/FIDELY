@@ -65,6 +65,14 @@ export default function Employees() {
 
   const refreshTimeLogs = () => { if (businessId) getTimeLogs(businessId).then(setTimeLogs).catch(() => {}); };
 
+  // Employés classés du plus assidu (le plus de pointages) au moins assidu, avec leurs 2 derniers passages.
+  const rankedEmployees = employees
+    .map(emp => {
+      const logs = timeLogs.filter(l => l.employeeId === emp.id).sort((a, b) => new Date(b.clockInTime).getTime() - new Date(a.clockInTime).getTime());
+      return { ...emp, passageCount: logs.length, lastPassages: logs.slice(0, 2) };
+    })
+    .sort((a, b) => b.passageCount - a.passageCount);
+
   const [savingEmp, setSavingEmp] = useState(false);
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -330,11 +338,12 @@ export default function Employees() {
                       <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Nom complet</th>
                       <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Rôle</th>
                       <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Téléphone</th>
+                      <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Assiduité</th>
                       <th className="px-6 py-4"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {employees.map((emp) => (
+                    {rankedEmployees.map((emp, i) => (
                       <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 flex items-center">
                           {emp.avatarUrl ? (
@@ -345,7 +354,10 @@ export default function Employees() {
                             </div>
                           )}
                           <div>
-                            <p className="text-sm font-medium text-gray-900">{emp.name}</p>
+                            <p className="text-sm font-medium text-gray-900 flex items-center">
+                              {i === 0 && emp.passageCount > 0 && <span title="Le plus assidu" className="mr-1.5">🏆</span>}
+                              {emp.name}
+                            </p>
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -355,6 +367,14 @@ export default function Employees() {
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
                           {emp.phone || 'Non renseigné'}
+                        </td>
+                        <td className="px-6 py-4 text-sm">
+                          <p className="font-semibold text-gray-900">{emp.passageCount} pointage{emp.passageCount > 1 ? "s" : ""}</p>
+                          {emp.lastPassages.length > 0 && (
+                            <p className="text-xs text-gray-400">
+                              Derniers : {emp.lastPassages.map((l: any) => new Date(l.clockInTime).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })).join(", ")}
+                            </p>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right">
                           {role === 'admin' && (

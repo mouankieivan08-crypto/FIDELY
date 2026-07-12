@@ -28,6 +28,7 @@ export interface Customer {
   cardNumber?: string;
   rewardStatus: "pending" | "available" | "redeemed";
   createdAt: string;
+  lastVisitDate?: string | null;
   // Present only on responses that compute loyalty (getCustomer, visit validation)
   loyaltyMode?: "visits" | "points" | "stamps";
   progress?: number;
@@ -43,6 +44,9 @@ export interface Visit {
   serviceName?: string;
   amount?: number;
   points: number;
+  tip?: number;
+  discount?: number;
+  offered?: boolean;
   date: string;
   validatedBy: string;
 }
@@ -121,13 +125,13 @@ export const getCustomer = async (customerId: string) => {
   return response.json();
 };
 
-export interface VisitItem { serviceId?: number; variantId?: number; employeeId?: number; }
+export interface VisitItem { serviceId?: number; variantId?: number; employeeId?: number; offered?: boolean; }
 
-export const recordVisit = async (customerId: string, items: VisitItem[]) => {
+export const recordVisit = async (customerId: string, items: VisitItem[], extras: { tip?: number; discount?: number } = {}) => {
   return fetchApi(`/customers/${customerId}/visits`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, ...extras }),
   });
 };
 
@@ -375,6 +379,7 @@ export interface Tier {
   name: string;
   threshold: number;
   perks?: string;
+  windowDays?: number;
   createdAt: string;
 }
 

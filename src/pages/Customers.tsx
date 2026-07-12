@@ -6,13 +6,19 @@ import {
   Customer, ServiceVariant, LoyaltyMode,
 } from "../services/db";
 import Layout from "../components/Layout";
-import { Plus, Search, X, Users as UsersIcon, Award, CheckCircle, Star, CreditCard, Phone, Trash2, Gift } from "lucide-react";
+import { Plus, Search, X, Users as UsersIcon, Award, CheckCircle, Star, CreditCard, Phone, Trash2, Gift, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const fmt = (n: number) => (n ?? 0).toLocaleString("fr-FR");
+const INACTIVE_DAYS = 60;
 
 const progressLabel = (mode: LoyaltyMode) => mode === "points" ? "points" : mode === "stamps" ? "tampons" : "visites";
 const progressOf = (mode: LoyaltyMode, c: Customer) => mode === "points" ? c.points : mode === "stamps" ? c.stamps : c.visits;
+const isInactive = (c: Customer) => {
+  const ref = c.lastVisitDate || c.createdAt;
+  if (!ref) return false;
+  return (Date.now() - new Date(ref).getTime()) / 86400000 > INACTIVE_DAYS;
+};
 
 export default function Customers() {
   const { user } = useAuth();
@@ -34,10 +40,20 @@ export default function Customers() {
   // Detail / cart state
   const [selected, setSelected] = useState<Customer | null>(null);
   const [history, setHistory] = useState<any[]>([]);
-  const [cart, setCart] = useState<{ serviceId: string; variantId: string; employeeId: string }[]>([{ serviceId: "", variantId: "", employeeId: "" }]);
+  const emptyCartRow = () => ({ serviceId: "", variantId: "", employeeId: "", offered: false });
+  const [cart, setCart] = useState<{ serviceId: string; variantId: string; employeeId: string; offered: boolean }[]>([emptyCartRow()]);
+  const [tip, setTip] = useState("");
+  const [discount, setDiscount] = useState("");
   const [saving, setSaving] = useState(false);
   const [validateMsg, setValidateMsg] = useState("");
   const [detailError, setDetailError] = useState("");
+
+  // Prestation pré-sélectionnée depuis l'onglet Prestations (bouton "Vendre")
+  const [pendingServiceId] = useState<string | null>(() => {
+    const v = sessionStorage.getItem("fidely_pending_service");
+    sessionStorage.removeItem("fidely_pending_service");
+    return v;
+  });
 
   useEffect(() => { if (user) fetchData(); }, [user]);
 
@@ -84,7 +100,9 @@ export default function Customers() {
   // --- Detail / cart ---
   const openDetail = async (c: Customer) => {
     setSelected(c);
-    setCart([{ serviceId: "", variantId: "", employeeId: "" }]);
+    setCart([{ ...emptyCartRow(), serviceId: pendingServiceId || "" }]);
+    setTip("");
+    setDiscount("");
     setValidateMsg("");
     setDetailError("");
     setHistory([]);
@@ -97,9 +115,9 @@ export default function Customers() {
     } catch (e) { console.error(e); }
   };
 
-  const addCartRow = () => setCart([...cart, { serviceId: "", variantId: "", employeeId: "" }]);
+  const addCartRow = () => setCart([...cart, emptyCartRow()]);
   const removeCartRow = (i: number) => setCart(cart.filter((_, idx) => idx !== i));
-  const updateCartRow = (i: number, patch: Partial<{ serviceId: string; variantId: string; employeeId: string }>) => {
+  const updateCartRow = (i: number, patch: Partial<{ serviceId: string; variantId: string; employeeId: string; offered: boolean }>) => {
     setCart(cart.map((row, idx) => idx === i ? { ...row, ...patch } : row));
   };
 
@@ -108,11 +126,14 @@ export default function Customers() {
     .map(r => {
       const svc = services.find((s: any) => s.id === parseInt(r.serviceId));
       const variant = r.variantId ? (variantsByService[parseInt(r.serviceId)] || []).find(v => v.id === parseInt(r.variantId)) : null;
-      const price = variant ? variant.price : svc?.price || 0;
+      const price = r.offered ? 0 : (variant ? variant.price : svc?.price || 0);
       const label = variant ? `${svc?.name} — ${variant.name}` : svc?.name;
       return { ...r, label, price };
     });
-  const cartTotal = cartLines.reduce((s, l) => s + l.price, 0);
+  const cartSubtotal = cartLines.reduce((s, l) => s + l.price, 0);
+  const tipCents = (parseInt(tip) || 0) * 100;
+  const discountCents = (parseInt(discount) || 0) * 100;
+  const cartTotal = Math.max(0, cartSubtotal - discountCents) + tipCents;
 
   const handleValidate = async () => {
     if (!selected || cartLines.length === 0 || saving) {
@@ -127,8 +148,10 @@ export default function Customers() {
         serviceId: r.variantId ? undefined : parseInt(r.serviceId),
         variantId: r.variantId ? parseInt(r.variantId) : undefined,
         employeeId: r.employeeId ? parseInt(r.employeeId) : undefined,
+        offered: r.offered,
       }));
-      const res = await recordVisit(selected.id, items);
+      // tip/discount sont exprimés en FCFA côté serveur (comme le montant des prestations)
+      const res = await recordVisit(selected.id, items, { tip: parseInt(tip) || 0, discount: parseInt(discount) || 0 });
       const rewardMsg = res.unlockedRewards?.length ? ` 🎁 ${res.unlockedRewards.length} récompense(s) disponible(s) !` : "";
       setValidateMsg(`Prestation enregistrée ! +${res.earnedPoints} pts · ${fmt(res.amount)} FCFA.${rewardMsg}`);
       const fresh = await fetch(`/api/customers/${selected.id}`).then(r => r.json());
@@ -137,7 +160,9 @@ export default function Customers() {
       const v = await getVisits(selected.id);
       v.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(v);
-      setCart([{ serviceId: "", variantId: "", employeeId: "" }]);
+      setCart([emptyCartRow()]);
+      setTip("");
+      setDiscount("");
     } catch (err) {
       setDetailError((err as Error).message || "Échec de la validation.");
     } finally { setSaving(false); }
@@ -234,13 +259,21 @@ export default function Customers() {
                 <tr key={customer.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => openDetail(customer)}>
                   <td className="px-6 py-4">
                     <div className="flex items-center">
-                      <div className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold mr-3">{customer.name.charAt(0).toUpperCase()}</div>
+                      <div className="relative mr-3">
+                        <div className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">{customer.name.charAt(0).toUpperCase()}</div>
+                        {isInactive(customer) && (
+                          <span title={`Aucune visite depuis plus de ${INACTIVE_DAYS} jours`} className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-red-500 border-2 border-white" />
+                        )}
+                      </div>
                       <div>
                         <p className="text-sm font-semibold text-gray-900">{customer.name}</p>
                         <p className="text-xs text-gray-500">{customer.phone}</p>
                       </div>
                       {customer.rewardStatus === "available" && (
                         <span className="ml-3 px-2 py-0.5 text-[11px] font-medium rounded-full bg-green-100 text-green-800 flex items-center"><Award className="h-3 w-3 mr-1" />Récompense</span>
+                      )}
+                      {isInactive(customer) && (
+                        <span className="ml-2 px-2 py-0.5 text-[11px] font-medium rounded-full bg-red-50 text-red-700 flex items-center"><AlertCircle className="h-3 w-3 mr-1" />Inactif</span>
                       )}
                     </div>
                   </td>
@@ -324,6 +357,10 @@ export default function Customers() {
                               <option value="">Employé (optionnel)</option>
                               {employeesList.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
                             </select>
+                            <label className="flex items-center text-xs text-gray-600 px-2 whitespace-nowrap" title="Offrir cette prestation">
+                              <input type="checkbox" checked={row.offered} onChange={e => updateCartRow(i, { offered: e.target.checked })} className="mr-1 rounded" />
+                              Offert
+                            </label>
                             {cart.length > 1 && <button onClick={() => removeCartRow(i)} className="text-gray-300 hover:text-red-500 px-2"><Trash2 className="h-4 w-4" /></button>}
                           </div>
                         );
@@ -332,10 +369,22 @@ export default function Customers() {
                     <button onClick={addCartRow} className="mt-2 text-sm text-indigo-600 font-medium hover:underline flex items-center"><Plus className="h-3.5 w-3.5 mr-1" />Ajouter une prestation</button>
 
                     {cartLines.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-indigo-100 flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Total ({cartLines.length} prestation{cartLines.length > 1 ? "s" : ""})</span>
-                        <span className="font-bold text-gray-900">{fmt(cartTotal / 100)} FCFA</span>
-                      </div>
+                      <>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1">Réduction (FCFA)</label>
+                            <input type="number" min="0" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" className="w-full text-sm border-gray-200 rounded-lg" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-gray-500 mb-1">Pourboire (FCFA)</label>
+                            <input type="number" min="0" value={tip} onChange={e => setTip(e.target.value)} placeholder="0" className="w-full text-sm border-gray-200 rounded-lg" />
+                          </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-indigo-100 flex justify-between items-center text-sm">
+                          <span className="text-gray-600">Total ({cartLines.length} prestation{cartLines.length > 1 ? "s" : ""})</span>
+                          <span className="font-bold text-gray-900">{fmt(cartTotal / 100)} FCFA</span>
+                        </div>
+                      </>
                     )}
                     {detailError && <p className="text-sm text-red-600 mt-2">{detailError}</p>}
                     {validateMsg && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2 mt-2 flex items-start"><CheckCircle className="h-4 w-4 mr-1.5 mt-0.5 flex-shrink-0" />{validateMsg}</p>}
@@ -365,6 +414,11 @@ export default function Customers() {
                         <div className="text-right">
                           {v.amount ? <p className="text-sm font-medium text-gray-700">{fmt(v.amount)} FCFA</p> : null}
                           {v.points ? <p className="text-xs text-indigo-600 font-semibold">+{v.points} pts</p> : null}
+                          {(v.tip || v.discount) ? (
+                            <p className="text-[11px] text-gray-400">
+                              {v.tip ? `+${fmt(v.tip)} pourboire` : ""}{v.tip && v.discount ? " · " : ""}{v.discount ? `-${fmt(v.discount)} réduction` : ""}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     ))}

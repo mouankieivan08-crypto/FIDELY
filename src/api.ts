@@ -193,8 +193,16 @@ export function createApiApp() {
 
   app.get("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
-      const rows = unwrap(await supabase.from("customers").select("*").eq("business_id", parseInt(req.params.id)));
-      res.json(toCamelCaseArray(rows || []));
+      const businessId = parseInt(req.params.id);
+      const rows = unwrap(await supabase.from("customers").select("*").eq("business_id", businessId));
+      // Attach each customer's last visit date so the UI can flag inactive clients.
+      const visitRows = unwrap(await supabase.from("visits").select("customer_id, date").eq("business_id", businessId));
+      const lastVisitByCustomer: Record<string, string> = {};
+      for (const v of visitRows || []) {
+        if (!lastVisitByCustomer[v.customer_id] || v.date > lastVisitByCustomer[v.customer_id]) lastVisitByCustomer[v.customer_id] = v.date;
+      }
+      const enriched = (rows || []).map((r) => ({ ...toCamelCase(r), lastVisitDate: lastVisitByCustomer[r.id] || null }));
+      res.json(enriched);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -261,7 +269,7 @@ export function createApiApp() {
       const mode = await getLoyaltyMode(customer.businessId);
       const progress = progressFor(mode, customer);
       const unlockedRewards = await getUnlockedRewards(customer.businessId, progress);
-      const tier = await getCurrentTier(customer.businessId, progress);
+      const tier = await getCurrentTier(customer.businessId, req.params.id, mode, progress);
       res.json({ ...customer, loyaltyMode: mode, progress, unlockedRewards, tier: tier?.name || null });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -285,11 +293,27 @@ export function createApiApp() {
     return toCamelCaseArray(rows || []);
   };
 
-  const getCurrentTier = async (businessId: number, progress: number) => {
-    const rows = unwrap(
-      await supabase.from("tiers").select("*").eq("business_id", businessId).lte("threshold", progress).order("threshold", { ascending: false }).limit(1)
-    );
-    return rows && rows.length > 0 ? toCamelCase(rows[0]) : null;
+  const getWindowedVisitCount = async (customerId: string, days: number) => {
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const rows = unwrap(await supabase.from("visits").select("id").eq("customer_id", customerId).gte("date", since));
+    return rows ? rows.length : 0;
+  };
+
+  // Highest tier the customer qualifies for. Tiers with window_days require that
+  // many visits within that rolling window (e.g. "4 visites en 60 jours"); others
+  // use the lifetime progress value.
+  const getCurrentTier = async (businessId: number, customerId: string, mode: string, progress: number) => {
+    const rows = unwrap(await supabase.from("tiers").select("*").eq("business_id", businessId).order("threshold", { ascending: false }));
+    for (const row of rows || []) {
+      const tier = toCamelCase<{ name: string; threshold: number; windowDays?: number }>(row);
+      if (tier.windowDays && mode === "visits") {
+        const count = await getWindowedVisitCount(customerId, tier.windowDays);
+        if (count >= tier.threshold) return tier;
+      } else if (progress >= tier.threshold) {
+        return tier;
+      }
+    }
+    return null;
   };
 
   const validateVisitSchema = z.object({
@@ -297,7 +321,10 @@ export function createApiApp() {
       serviceId: z.coerce.number().int().positive().optional(),
       variantId: z.coerce.number().int().positive().optional(),
       employeeId: z.coerce.number().int().positive().optional(),
+      offered: z.boolean().optional(), // prestation offerte au client (montant et points à 0)
     })).min(1).optional(),
+    tip: z.coerce.number().int().min(0).optional(),
+    discount: z.coerce.number().int().min(0).optional(),
     // Legacy single-service shape, still supported
     serviceId: z.coerce.number().int().positive().optional(),
     variantId: z.coerce.number().int().positive().optional(),
@@ -333,7 +360,10 @@ export function createApiApp() {
       let totalAmount = 0;
       let totalPoints = 0;
       const performedNames: string[] = [];
-      for (const item of items) {
+      const tip = parsed.data.tip || 0;
+      const discount = Math.min(parsed.data.discount || 0, Number.MAX_SAFE_INTEGER);
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
         let serviceId: number | null = null;
         let serviceName: string | null = null;
         let amountFcfa = 0;
@@ -358,6 +388,11 @@ export function createApiApp() {
             earnedPoints = service.points ?? Math.round(amountFcfa / 1000);
           }
         }
+        if (item.offered) {
+          amountFcfa = 0;
+          earnedPoints = 0;
+          if (serviceName) serviceName += " (Offert)";
+        }
         totalAmount += amountFcfa;
         totalPoints += earnedPoints;
         if (serviceName) performedNames.push(serviceName);
@@ -371,10 +406,16 @@ export function createApiApp() {
             employeeId: item.employeeId,
             amount: amountFcfa || null,
             points: earnedPoints,
+            offered: !!item.offered,
+            // Le pourboire et la réduction concernent l'ensemble du ticket : on les
+            // rattache à la première ligne pour ne les afficher qu'une fois dans l'historique.
+            tip: idx === 0 ? tip : 0,
+            discount: idx === 0 ? discount : 0,
             validatedBy: req.user!.uid,
           }))
         );
       }
+      totalAmount = Math.max(0, totalAmount - discount) + tip;
 
       const mode = await getLoyaltyMode(customer.businessId);
       const newVisits = customer.visits + 1; // one checkout = one visit, regardless of number of services
@@ -383,7 +424,7 @@ export function createApiApp() {
       const newProgress = progressFor(mode, { visits: newVisits, points: newPoints, stamps: newStamps });
 
       const unlocked = await getUnlockedRewards(customer.businessId, newProgress);
-      const tier = await getCurrentTier(customer.businessId, newProgress);
+      const tier = await getCurrentTier(customer.businessId, customerId, mode, newProgress);
       const newRewardStatus = unlocked.length > 0 ? "available" : "pending";
 
       unwrap(
@@ -543,6 +584,7 @@ export function createApiApp() {
     name: z.string().trim().min(1).max(100),
     threshold: z.coerce.number().int().min(0),
     perks: z.string().trim().max(500).optional(),
+    windowDays: z.coerce.number().int().min(1).max(3650).optional(), // ex: 60 = "N visites en 60 jours"
   });
 
   app.post("/api/businesses/:id/tiers", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
@@ -550,7 +592,7 @@ export function createApiApp() {
       const parsed = tierSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const result = unwrap(
-        await supabase.from("tiers").insert({ business_id: parseInt(req.params.id), ...parsed.data }).select().single()
+        await supabase.from("tiers").insert({ business_id: parseInt(req.params.id), ...toSnakeCase(parsed.data) }).select().single()
       );
       res.json(toCamelCase(result));
     } catch (error) {

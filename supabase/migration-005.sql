@@ -48,3 +48,9 @@ alter table loyalty_settings enable row level security;
 alter table rewards enable row level security;
 alter table tiers enable row level security;
 alter table customer_rewards enable row level security;
+
+-- Migration 006 (ajoutée ensuite) : pourboire/réduction/offert, niveaux avec fenêtre de temps
+alter table visits add column if not exists tip integer default 0;
+alter table visits add column if not exists discount integer default 0;
+alter table visits add column if not exists offered boolean default false;
+alter table tiers add column if not exists window_days integer; -- ex: 60 = "N visites en 60 jours" ; vide = illimité

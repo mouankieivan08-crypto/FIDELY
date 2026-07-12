@@ -36,7 +36,7 @@ export default function Programs() {
   const [savingReward, setSavingReward] = useState(false);
 
   const [showTierModal, setShowTierModal] = useState(false);
-  const [tierForm, setTierForm] = useState({ name: "", threshold: "", perks: "" });
+  const [tierForm, setTierForm] = useState({ name: "", threshold: "", perks: "", windowDays: "" });
   const [tierError, setTierError] = useState("");
   const [savingTier, setSavingTier] = useState(false);
 
@@ -89,10 +89,13 @@ export default function Programs() {
     setSavingTier(true);
     setTierError("");
     try {
-      const t = await createTier(businessId, { name: tierForm.name, threshold: parseInt(tierForm.threshold), perks: tierForm.perks || undefined });
+      const t = await createTier(businessId, {
+        name: tierForm.name, threshold: parseInt(tierForm.threshold), perks: tierForm.perks || undefined,
+        windowDays: tierForm.windowDays ? parseInt(tierForm.windowDays) : undefined,
+      });
       setTiers([...tiers, t].sort((a, b) => a.threshold - b.threshold));
       setShowTierModal(false);
-      setTierForm({ name: "", threshold: "", perks: "" });
+      setTierForm({ name: "", threshold: "", perks: "", windowDays: "" });
     } catch (err) { setTierError((err as Error).message || "Échec de l'ajout."); } finally { setSavingTier(false); }
   };
 
@@ -162,7 +165,9 @@ export default function Programs() {
               <div key={t.id} className="px-6 py-3 flex items-center justify-between">
                 <div>
                   <p className="font-medium text-gray-900">{t.name}</p>
-                  <p className="text-xs text-gray-500">À partir de <strong>{t.threshold}</strong> {unit}{t.perks ? ` · ${t.perks}` : ""}</p>
+                  <p className="text-xs text-gray-500">
+                    À partir de <strong>{t.threshold}</strong> {unit}{t.windowDays ? ` en ${t.windowDays} jours` : ""}{t.perks ? ` · ${t.perks}` : ""}
+                  </p>
                 </div>
                 <button onClick={() => handleDeleteTier(t.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
               </div>
@@ -219,11 +224,18 @@ export default function Programs() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Seuil requis ({unit})</label>
-                <input required type="number" min="0" value={tierForm.threshold} onChange={e => setTierForm({ ...tierForm, threshold: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm" placeholder="Ex: 30" />
+                <input required type="number" min="0" value={tierForm.threshold} onChange={e => setTierForm({ ...tierForm, threshold: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm" placeholder="Ex: 4" />
               </div>
+              {mode === "visits" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Délai (optionnel) — en jours</label>
+                  <input type="number" min="1" value={tierForm.windowDays} onChange={e => setTierForm({ ...tierForm, windowDays: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm" placeholder="Ex: 60 = ces visites doivent être faites en 60 jours" />
+                  <p className="text-xs text-gray-400 mt-1">Laissez vide pour un cumul sans limite de temps.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Avantages (optionnel)</label>
-                <input value={tierForm.perks} onChange={e => setTierForm({ ...tierForm, perks: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm" placeholder="Ex: -10% permanent, cadeau anniversaire" />
+                <input value={tierForm.perks} onChange={e => setTierForm({ ...tierForm, perks: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm" placeholder="Ex: -10% de réduction permanente" />
               </div>
               <button type="submit" disabled={savingTier} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50">{savingTier ? "..." : "Créer le niveau"}</button>
             </form>
