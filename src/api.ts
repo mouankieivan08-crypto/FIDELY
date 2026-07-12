@@ -295,7 +295,9 @@ export function createApiApp() {
 
   const getWindowedVisitCount = async (customerId: string, days: number) => {
     const since = new Date(Date.now() - days * 86400000).toISOString();
-    const rows = unwrap(await supabase.from("visits").select("id").eq("customer_id", customerId).gte("date", since));
+    // is_primary=true isolates one row per checkout (a checkout can have several
+    // service lines) so this counts real passages, not prestation lines.
+    const rows = unwrap(await supabase.from("visits").select("id").eq("customer_id", customerId).eq("is_primary", true).gte("date", since));
     return rows ? rows.length : 0;
   };
 
@@ -411,6 +413,7 @@ export function createApiApp() {
             // rattache à la première ligne pour ne les afficher qu'une fois dans l'historique.
             tip: idx === 0 ? tip : 0,
             discount: idx === 0 ? discount : 0,
+            isPrimary: idx === 0,
             validatedBy: req.user!.uid,
           }))
         );
@@ -759,8 +762,13 @@ export function createApiApp() {
       const svc = toCamelCase<{ businessId: number }>(rows[0]);
       const access = await loadAccess(req, res, svc.businessId);
       if (!access) return;
-      unwrap(await supabase.from("service_variants").delete().eq("service_id", parseInt(req.params.id)));
-      unwrap(await supabase.from("services").delete().eq("id", parseInt(req.params.id)));
+      const serviceId = parseInt(req.params.id);
+      // Le nom de la prestation est déjà figé dans l'historique (visits.service_name),
+      // donc on peut détacher les références avant de supprimer sans perdre l'historique.
+      unwrap(await supabase.from("visits").update({ service_id: null }).eq("service_id", serviceId));
+      unwrap(await supabase.from("appointments").delete().eq("service_id", serviceId));
+      unwrap(await supabase.from("service_variants").delete().eq("service_id", serviceId));
+      unwrap(await supabase.from("services").delete().eq("id", serviceId));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });

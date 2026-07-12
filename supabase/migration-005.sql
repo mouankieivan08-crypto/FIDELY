@@ -53,4 +53,7 @@ alter table customer_rewards enable row level security;
 alter table visits add column if not exists tip integer default 0;
 alter table visits add column if not exists discount integer default 0;
 alter table visits add column if not exists offered boolean default false;
+-- true seulement sur la 1ère ligne de chaque passage (un passage peut avoir plusieurs
+-- prestations) : sert à compter les VRAIS passages, pas les lignes de prestation.
+alter table visits add column if not exists is_primary boolean default true;
 alter table tiers add column if not exists window_days integer; -- ex: 60 = "N visites en 60 jours" ; vide = illimité
