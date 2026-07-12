@@ -49,9 +49,11 @@ export default function Appointments() {
     }
   };
 
+  const [saving, setSaving] = useState(false);
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!businessId) return;
+    if (!businessId || saving) return;
+    setSaving(true);
     setFormError("");
     try {
       const newApt = await createAppointment(businessId, {
@@ -68,7 +70,7 @@ export default function Appointments() {
     } catch (error) {
       console.error("Error creating appointment:", error);
       setFormError((error as Error).message || "Échec de la création du rendez-vous.");
-    }
+    } finally { setSaving(false); }
   };
 
   const getCustomerName = (id: string) => {
@@ -201,8 +203,8 @@ export default function Appointments() {
               </div>
               
               <div className="pt-4">
-                <button type="submit" className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
-                  Enregistrer
+                <button type="submit" disabled={saving} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50">
+                  {saving ? "..." : "Enregistrer"}
                 </button>
               </div>
             </form>

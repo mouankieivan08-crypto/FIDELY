@@ -28,11 +28,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Staff voit : Agenda, Clients, Catégories, Prestations, Fidélité, Scanner, Comptabilité.
   // Admin voit tout (+ Tableau de bord, Employés, Personnel, Rapports).
+  // Staff a accès à tout, sauf Personnel et Rapports (réservés admin).
   const navItems = [
-    { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard, adminOnly: true },
+    { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard, adminOnly: false },
     { name: "Agenda", href: "/appointments", icon: CalendarIcon, adminOnly: false },
     { name: "Clients", href: "/customers", icon: Users, adminOnly: false },
-    { name: "Employés", href: "/employees", icon: Briefcase, adminOnly: true },
+    { name: "Employés", href: "/employees", icon: Briefcase, adminOnly: false },
     { name: "Catégories", href: "/categories", icon: Tag, adminOnly: false },
     { name: "Prestations", href: "/services", icon: Scissors, adminOnly: false },
     { name: "Fidélité", href: "/programs", icon: CreditCard, adminOnly: false },

@@ -15,6 +15,7 @@ export default function Employees() {
   const [pointageEmployeeId, setPointageEmployeeId] = useState<string>('');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [timeLogs, setTimeLogs] = useState<any[]>([]);
+  const [historyFilter, setHistoryFilter] = useState("");
   const [role, setRole] = useState<string>('admin');
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -42,9 +43,7 @@ export default function Employees() {
             if (rest.role) setRole(rest.role);
             const emps = await getEmployees(rest.id);
             setEmployees(emps);
-            if (rest.role === 'admin') {
-              getTimeLogs(rest.id).then(setTimeLogs).catch(() => {});
-            }
+            getTimeLogs(rest.id).then(setTimeLogs).catch(() => {});
           }
         } catch (error) {
           console.error("Error loading employees", error);
@@ -66,9 +65,11 @@ export default function Employees() {
 
   const refreshTimeLogs = () => { if (businessId) getTimeLogs(businessId).then(setTimeLogs).catch(() => {}); };
 
+  const [savingEmp, setSavingEmp] = useState(false);
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!businessId) return;
+    if (!businessId || savingEmp) return;
+    setSavingEmp(true);
     setFormError("");
     try {
       const newEmp = await createEmployee(businessId, formData);
@@ -78,7 +79,7 @@ export default function Employees() {
     } catch (error) {
       console.error("Error creating employee", error);
       setFormError((error as Error).message || "Échec de la création de l'employé.");
-    }
+    } finally { setSavingEmp(false); }
   };
 
   const getLocation = (): Promise<{ locationLat?: string; locationLng?: string }> => {
@@ -131,19 +132,6 @@ export default function Employees() {
 
   if (loading) return <Layout><div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" /></div></Layout>;
 
-  // Gestion des employés réservée aux administrateurs
-  if (role !== "admin") {
-    return (
-      <Layout>
-        <div className="max-w-md mx-auto mt-16 bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center">
-          <Lock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-          <h2 className="text-lg font-bold text-gray-900">Accès réservé</h2>
-          <p className="text-gray-500 mt-1">La gestion des employés est réservée aux administrateurs.</p>
-        </div>
-      </Layout>
-    );
-  }
-
   return (
     <Layout>
       <div className="mb-8 flex flex-col sm:flex-row justify-between sm:items-end gap-3">
@@ -175,11 +163,14 @@ export default function Employees() {
 
       {activeTab === 'historique' && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center">
-            <History className="h-4 w-4 text-indigo-500 mr-2" />
-            <span className="text-sm font-medium text-gray-900">Historique des pointages</span>
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+            <span className="text-sm font-medium text-gray-900 flex items-center"><History className="h-4 w-4 text-indigo-500 mr-2" />Historique des pointages</span>
+            <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)} className="text-sm border-gray-200 rounded-lg">
+              <option value="">Tous les employés</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
           </div>
-          {timeLogs.length === 0 ? (
+          {timeLogs.filter(l => !historyFilter || String(l.employeeId) === historyFilter).length === 0 ? (
             <div className="p-8 text-center text-gray-500">Aucun pointage enregistré pour le moment.</div>
           ) : (
             <div className="overflow-x-auto">
@@ -193,7 +184,7 @@ export default function Employees() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {timeLogs.map((log) => (
+                  {timeLogs.filter(l => !historyFilter || String(l.employeeId) === historyFilter).map((log) => (
                     <tr key={log.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 text-sm font-medium text-gray-900">{log.employeeName}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">
@@ -300,29 +291,35 @@ export default function Employees() {
 
       {activeTab === 'list' && (
         <>
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={() => { setFormError(""); setShowAddModal(true); }}
-              className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Ajouter un employé
-            </button>
-          </div>
-          
+          {role === 'admin' && (
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => { setFormError(""); setShowAddModal(true); }}
+                className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Ajouter un employé
+              </button>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
           ) : employees.length === 0 ? (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
               <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900">Aucun employé</h3>
-              <p className="text-gray-500 mt-1">Ajoutez votre premier collaborateur pour commencer.</p>
-              <button
-                onClick={() => { setFormError(""); setShowAddModal(true); }}
-                className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                Ajouter un employé
-              </button>
+              {role === 'admin' ? (
+                <>
+                  <p className="text-gray-500 mt-1">Ajoutez votre premier collaborateur pour commencer.</p>
+                  <button
+                    onClick={() => { setFormError(""); setShowAddModal(true); }}
+                    className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    Ajouter un employé
+                  </button>
+                </>
+              ) : <p className="text-gray-500 mt-1">Aucun collaborateur pour le moment.</p>}
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -360,9 +357,11 @@ export default function Employees() {
                           {emp.phone || 'Non renseigné'}
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <button onClick={() => handleDeleteEmployee(emp.id)} title="Supprimer" className="text-gray-300 hover:text-red-500">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {role === 'admin' && (
+                            <button onClick={() => handleDeleteEmployee(emp.id)} title="Supprimer" className="text-gray-300 hover:text-red-500">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -487,9 +486,10 @@ export default function Employees() {
               <div className="mt-6">
                 <button
                   type="submit"
-                  className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  disabled={savingEmp}
+                  className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
                 >
-                  Créer l'employé
+                  {savingEmp ? "..." : "Créer l'employé"}
                 </button>
               </div>
             </form>

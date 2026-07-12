@@ -146,11 +146,6 @@ export default function Dashboard() {
 
   if (loading) return <div className="flex justify-center items-center h-screen bg-gray-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div></div>;
 
-  // Le tableau de bord est réservé aux administrateurs ; le staff est redirigé.
-  if (business && business.role && business.role !== "admin") {
-    return <Navigate to="/customers" replace />;
-  }
-
   if (!business) {
     return (
       <Layout>

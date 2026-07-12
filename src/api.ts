@@ -203,7 +203,6 @@ export function createApiApp() {
   const createCustomerSchema = z.object({
     name: z.string().trim().min(1).max(200),
     phone: z.string().trim().min(1).max(30),
-    programId: z.coerce.number().int().positive(),
   });
 
   app.post("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
@@ -211,12 +210,6 @@ export function createApiApp() {
       const parsed = createCustomerSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const businessId = parseInt(req.params.id);
-
-      // programId must belong to this business
-      const prog = unwrap(
-        await supabase.from("programs").select("id").eq("id", parsed.data.programId).eq("business_id", businessId)
-      );
-      if (!prog || prog.length === 0) return res.status(400).json({ error: "Invalid program" });
 
       // Cryptographically random, unguessable card id (public card URLs rely on this being unenumerable)
       const id = "CARD-" + randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
@@ -230,6 +223,15 @@ export function createApiApp() {
         if (!clash || clash.length === 0) { cardNumber = candidate; break; }
       }
 
+      // Sequential unique client code CL-0001, CL-0002... (never reused/duplicated)
+      const countRows = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId));
+      let code = "";
+      for (let n = (countRows?.length || 0) + 1; ; n++) {
+        const candidate = "CL-" + String(n).padStart(4, "0");
+        const clash = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId).eq("code", candidate).limit(1));
+        if (!clash || clash.length === 0) { code = candidate; break; }
+      }
+
       const result = unwrap(
         await supabase
           .from("customers")
@@ -238,8 +240,8 @@ export function createApiApp() {
             business_id: businessId,
             name: parsed.data.name,
             phone: parsed.data.phone,
-            program_id: parsed.data.programId,
             card_number: cardNumber,
+            code,
           })
           .select()
           .single()
@@ -255,15 +257,51 @@ export function createApiApp() {
     try {
       const rows = unwrap(await supabase.from("customers").select("*").eq("id", req.params.id).limit(1));
       if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
-      res.json(toCamelCase(rows[0]));
+      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number }>(rows[0]);
+      const mode = await getLoyaltyMode(customer.businessId);
+      const progress = progressFor(mode, customer);
+      const unlockedRewards = await getUnlockedRewards(customer.businessId, progress);
+      const tier = await getCurrentTier(customer.businessId, progress);
+      res.json({ ...customer, loyaltyMode: mode, progress, unlockedRewards, tier: tier?.name || null });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
   });
 
+  // --- Loyalty engine helpers (mode: 'visits' | 'points' | 'stamps') ---
+
+  const getLoyaltyMode = async (businessId: number): Promise<string> => {
+    const rows = unwrap(await supabase.from("loyalty_settings").select("mode").eq("business_id", businessId).limit(1));
+    return rows && rows.length > 0 ? rows[0].mode : "visits";
+  };
+
+  const progressFor = (mode: string, customer: { visits: number; points: number; stamps: number }) =>
+    mode === "points" ? customer.points || 0 : mode === "stamps" ? customer.stamps || 0 : customer.visits || 0;
+
+  const getUnlockedRewards = async (businessId: number, progress: number) => {
+    const rows = unwrap(
+      await supabase.from("rewards").select("*").eq("business_id", businessId).eq("active", true).lte("threshold", progress).order("threshold")
+    );
+    return toCamelCaseArray(rows || []);
+  };
+
+  const getCurrentTier = async (businessId: number, progress: number) => {
+    const rows = unwrap(
+      await supabase.from("tiers").select("*").eq("business_id", businessId).lte("threshold", progress).order("threshold", { ascending: false }).limit(1)
+    );
+    return rows && rows.length > 0 ? toCamelCase(rows[0]) : null;
+  };
+
   const validateVisitSchema = z.object({
+    items: z.array(z.object({
+      serviceId: z.coerce.number().int().positive().optional(),
+      variantId: z.coerce.number().int().positive().optional(),
+      employeeId: z.coerce.number().int().positive().optional(),
+    })).min(1).optional(),
+    // Legacy single-service shape, still supported
     serviceId: z.coerce.number().int().positive().optional(),
     variantId: z.coerce.number().int().positive().optional(),
+    employeeId: z.coerce.number().int().positive().optional(),
   });
 
   app.post("/api/customers/:id/visits", requireAuth, async (req: AuthRequest, res) => {
@@ -271,10 +309,13 @@ export function createApiApp() {
       const customerId = req.params.id;
       const parsed = validateVisitSchema.safeParse(req.body || {});
       if (!parsed.success) return handleZodError(res, parsed.error);
+      const items = parsed.data.items && parsed.data.items.length > 0
+        ? parsed.data.items
+        : [{ serviceId: parsed.data.serviceId, variantId: parsed.data.variantId, employeeId: parsed.data.employeeId }];
 
       const custs = unwrap(await supabase.from("customers").select("*").eq("id", customerId).limit(1));
       if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
-      const customer = toCamelCase<{ businessId: number; programId: number; visits: number; points: number; rewardStatus: string }>(custs[0]);
+      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number }>(custs[0]);
 
       const business = await loadOwnedBusiness(req, res, customer.businessId);
       if (!business) return; // response already sent
@@ -288,58 +329,74 @@ export function createApiApp() {
         return res.status(400).json({ error: "Visite déjà validée à l'instant. Patientez un instant." });
       }
 
-      // Resolve the performed service / variant → amount + points (1 point / 1000 FCFA)
-      let serviceId: number | null = null;
-      let serviceName: string | null = null;
-      let amountFcfa = 0;
-      if (parsed.data.variantId) {
-        const vr = unwrap(await supabase.from("service_variants").select("*").eq("id", parsed.data.variantId).limit(1));
-        if (vr && vr.length > 0) {
-          const variant = toCamelCase<{ serviceId: number; name: string; price: number }>(vr[0]);
-          serviceId = variant.serviceId;
-          amountFcfa = Math.round(variant.price / 100);
-          const sv = unwrap(await supabase.from("services").select("name").eq("id", variant.serviceId).limit(1));
-          serviceName = (sv && sv[0]?.name ? sv[0].name + " — " : "") + variant.name;
+      // Resolve each service/variant → amount + points, insert one visit row per item (detailed history)
+      let totalAmount = 0;
+      let totalPoints = 0;
+      const performedNames: string[] = [];
+      for (const item of items) {
+        let serviceId: number | null = null;
+        let serviceName: string | null = null;
+        let amountFcfa = 0;
+        let earnedPoints = 0;
+        if (item.variantId) {
+          const vr = unwrap(await supabase.from("service_variants").select("*").eq("id", item.variantId).limit(1));
+          if (vr && vr.length > 0) {
+            const variant = toCamelCase<{ serviceId: number; name: string; price: number; points?: number }>(vr[0]);
+            serviceId = variant.serviceId;
+            amountFcfa = Math.round(variant.price / 100);
+            earnedPoints = variant.points ?? Math.round(amountFcfa / 1000);
+            const sv = unwrap(await supabase.from("services").select("name").eq("id", variant.serviceId).limit(1));
+            serviceName = (sv && sv[0]?.name ? sv[0].name + " — " : "") + variant.name;
+          }
+        } else if (item.serviceId) {
+          const sv = unwrap(await supabase.from("services").select("*").eq("id", item.serviceId).eq("business_id", customer.businessId).limit(1));
+          if (sv && sv.length > 0) {
+            const service = toCamelCase<{ id: number; name: string; price: number; points?: number }>(sv[0]);
+            serviceId = service.id;
+            serviceName = service.name;
+            amountFcfa = Math.round(service.price / 100);
+            earnedPoints = service.points ?? Math.round(amountFcfa / 1000);
+          }
         }
-      } else if (parsed.data.serviceId) {
-        const sv = unwrap(await supabase.from("services").select("*").eq("id", parsed.data.serviceId).eq("business_id", customer.businessId).limit(1));
-        if (sv && sv.length > 0) {
-          const service = toCamelCase<{ id: number; name: string; price: number }>(sv[0]);
-          serviceId = service.id;
-          serviceName = service.name;
-          amountFcfa = Math.round(service.price / 100);
-        }
+        totalAmount += amountFcfa;
+        totalPoints += earnedPoints;
+        if (serviceName) performedNames.push(serviceName);
+
+        unwrap(
+          await supabase.from("visits").insert(toSnakeCase({
+            customerId,
+            businessId: customer.businessId,
+            serviceId,
+            serviceName,
+            employeeId: item.employeeId,
+            amount: amountFcfa || null,
+            points: earnedPoints,
+            validatedBy: req.user!.uid,
+          }))
+        );
       }
-      const earnedPoints = Math.round(amountFcfa / 1000);
 
-      const progs = unwrap(await supabase.from("programs").select("*").eq("id", customer.programId).limit(1));
-      const program = progs && progs.length > 0 ? toCamelCase<{ visitsRequired: number }>(progs[0]) : { visitsRequired: 999999 };
+      const mode = await getLoyaltyMode(customer.businessId);
+      const newVisits = customer.visits + 1; // one checkout = one visit, regardless of number of services
+      const newPoints = (customer.points || 0) + totalPoints;
+      const newStamps = (customer.stamps || 0) + 1;
+      const newProgress = progressFor(mode, { visits: newVisits, points: newPoints, stamps: newStamps });
 
-      // Record the visit with full detail (anti-fraud: who, when, what, how much)
+      const unlocked = await getUnlockedRewards(customer.businessId, newProgress);
+      const tier = await getCurrentTier(customer.businessId, newProgress);
+      const newRewardStatus = unlocked.length > 0 ? "available" : "pending";
+
       unwrap(
-        await supabase.from("visits").insert(toSnakeCase({
-          customerId,
-          businessId: customer.businessId,
-          serviceId,
-          serviceName,
-          amount: amountFcfa || null,
-          points: earnedPoints,
-          validatedBy: req.user!.uid,
-        }))
+        await supabase.from("customers").update({
+          visits: newVisits, points: newPoints, stamps: newStamps, reward_status: newRewardStatus,
+        }).eq("id", customerId)
       );
 
-      const newVisits = customer.visits + 1;
-      const newPoints = (customer.points || 0) + earnedPoints;
-      let newRewardStatus = customer.rewardStatus;
-      if (newVisits >= program.visitsRequired) {
-        newRewardStatus = "available";
-      }
-
-      unwrap(
-        await supabase.from("customers").update({ visits: newVisits, points: newPoints, reward_status: newRewardStatus }).eq("id", customerId)
-      );
-
-      res.json({ newVisits, newPoints, earnedPoints, serviceName, amount: amountFcfa, newRewardStatus });
+      res.json({
+        newVisits, newPoints, newStamps, earnedPoints: totalPoints, amount: totalAmount,
+        serviceName: performedNames.join(", "), newRewardStatus,
+        unlockedRewards: unlocked, tier: tier?.name || null,
+      });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -355,16 +412,161 @@ export function createApiApp() {
     }
   });
 
+  const redeemSchema = z.object({ rewardId: z.coerce.number().int().positive() });
+
   app.post("/api/customers/:id/redeem", requireAuth, async (req: AuthRequest, res) => {
     try {
       const custs = unwrap(await supabase.from("customers").select("*").eq("id", req.params.id).limit(1));
       if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
-      const customer = toCamelCase<{ businessId: number }>(custs[0]);
+      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number }>(custs[0]);
 
       const business = await loadOwnedBusiness(req, res, customer.businessId);
       if (!business) return; // response already sent
 
-      unwrap(await supabase.from("customers").update({ visits: 0, reward_status: "pending" }).eq("id", req.params.id));
+      const parsed = redeemSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+
+      const rw = unwrap(await supabase.from("rewards").select("*").eq("id", parsed.data.rewardId).eq("business_id", customer.businessId).limit(1));
+      if (!rw || rw.length === 0) return res.status(404).json({ error: "Récompense introuvable" });
+      const reward = toCamelCase<{ id: number; threshold: number }>(rw[0]);
+
+      const mode = await getLoyaltyMode(customer.businessId);
+      const progress = progressFor(mode, customer);
+      if (progress < reward.threshold) return res.status(400).json({ error: "Le client n'a pas encore atteint le seuil de cette récompense." });
+
+      unwrap(await supabase.from("customer_rewards").insert({ customer_id: req.params.id, reward_id: reward.id, redeemed_by: req.user!.uid }));
+      // Redeeming resets the progress counter to zero for a fresh loyalty cycle.
+      unwrap(await supabase.from("customers").update({ visits: 0, points: 0, stamps: 0, reward_status: "pending" }).eq("id", req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // --- Loyalty configuration (admin) ---
+
+  app.get("/api/businesses/:id/loyalty-settings", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
+    try {
+      const mode = await getLoyaltyMode(parseInt(req.params.id));
+      res.json({ mode });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const loyaltySettingsSchema = z.object({ mode: z.enum(["visits", "points", "stamps"]) });
+
+  app.put("/api/businesses/:id/loyalty-settings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const parsed = loyaltySettingsSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const businessId = parseInt(req.params.id);
+      unwrap(await supabase.from("loyalty_settings").upsert({ business_id: businessId, mode: parsed.data.mode }, { onConflict: "business_id" }));
+      res.json({ mode: parsed.data.mode });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get("/api/businesses/:id/rewards", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("rewards").select("*").eq("business_id", parseInt(req.params.id)).order("threshold"));
+      res.json(toCamelCaseArray(rows || []));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const rewardSchema = z.object({
+    label: z.string().trim().min(1).max(200),
+    threshold: z.coerce.number().int().min(1),
+    type: z.enum(["discount_amount", "discount_percent", "free_service", "product", "custom"]).default("custom"),
+    value: z.string().trim().max(200).optional(),
+    active: z.boolean().optional(),
+  });
+
+  app.post("/api/businesses/:id/rewards", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const parsed = rewardSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(
+        await supabase.from("rewards").insert({ business_id: parseInt(req.params.id), ...parsed.data, active: parsed.data.active ?? true }).select().single()
+      );
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.put("/api/rewards/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("rewards").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const reward = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, reward.businessId);
+      if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
+      const parsed = rewardSchema.partial().safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(await supabase.from("rewards").update(parsed.data).eq("id", parseInt(req.params.id)).select().single());
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete("/api/rewards/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("rewards").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const reward = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, reward.businessId);
+      if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
+      unwrap(await supabase.from("rewards").delete().eq("id", parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.get("/api/businesses/:id/tiers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("tiers").select("*").eq("business_id", parseInt(req.params.id)).order("threshold"));
+      res.json(toCamelCaseArray(rows || []));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const tierSchema = z.object({
+    name: z.string().trim().min(1).max(100),
+    threshold: z.coerce.number().int().min(0),
+    perks: z.string().trim().max(500).optional(),
+  });
+
+  app.post("/api/businesses/:id/tiers", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const parsed = tierSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(
+        await supabase.from("tiers").insert({ business_id: parseInt(req.params.id), ...parsed.data }).select().single()
+      );
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete("/api/tiers/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("tiers").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const tier = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, tier.businessId);
+      if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
+      unwrap(await supabase.from("tiers").delete().eq("id", parseInt(req.params.id)));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -431,7 +633,7 @@ export function createApiApp() {
   });
 
   // Clock-in / clock-out history for the whole business (admin only, traçabilité)
-  app.get("/api/businesses/:id/time-logs", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/businesses/:id/time-logs", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const businessId = parseInt(req.params.id);
       const emps = unwrap(await supabase.from("employees").select("id, name").eq("business_id", businessId));
@@ -464,6 +666,7 @@ export function createApiApp() {
     price: z.coerce.number().int().min(0),
     duration: z.coerce.number().int().min(1).max(1440),
     description: z.string().trim().max(1000).optional(),
+    points: z.coerce.number().int().min(0).optional(),
   });
 
   app.post("/api/businesses/:id/services", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
@@ -480,11 +683,43 @@ export function createApiApp() {
             price: parsed.data.price,
             duration: parsed.data.duration,
             description: parsed.data.description,
+            points: parsed.data.points,
           })
           .select()
           .single()
       );
       res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.put("/api/services/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("services").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const svc = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, svc.businessId);
+      if (!access) return;
+      const parsed = createServiceSchema.partial().safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(await supabase.from("services").update(toSnakeCase(parsed.data)).eq("id", parseInt(req.params.id)).select().single());
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete("/api/services/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("services").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const svc = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, svc.businessId);
+      if (!access) return;
+      unwrap(await supabase.from("service_variants").delete().eq("service_id", parseInt(req.params.id)));
+      unwrap(await supabase.from("services").delete().eq("id", parseInt(req.params.id)));
+      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

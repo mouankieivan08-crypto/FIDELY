@@ -29,9 +29,11 @@ export default function Categories() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
+  const [saving, setSaving] = useState(false);
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!businessId || !name.trim()) return;
+    if (!businessId || !name.trim() || saving) return;
+    setSaving(true);
     setFormError("");
     try {
       const cat = await createCategory(businessId, name.trim());
@@ -40,7 +42,7 @@ export default function Categories() {
       setShowModal(false);
     } catch (err) {
       setFormError((err as Error).message || "Échec de la création.");
-    }
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async (id: number) => {
@@ -113,7 +115,7 @@ export default function Categories() {
                 <input type="text" required autoFocus value={name} onChange={e => setName(e.target.value)}
                   className="w-full border-gray-300 rounded-lg shadow-sm" placeholder="Ex: Coiffure, Réparation, Consultation..." />
               </div>
-              <button type="submit" className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">Créer la catégorie</button>
+              <button type="submit" disabled={saving} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50">{saving ? "..." : "Créer la catégorie"}</button>
             </form>
           </div>
         </div>

@@ -19,14 +19,20 @@ export interface Program {
 export interface Customer {
   id: string;
   businessId: number;
+  code: string;
   name: string;
   phone: string;
   visits: number;
   points: number;
+  stamps: number;
   cardNumber?: string;
-  programId: number;
   rewardStatus: "pending" | "available" | "redeemed";
   createdAt: string;
+  // Present only on responses that compute loyalty (getCustomer, visit validation)
+  loyaltyMode?: "visits" | "points" | "stamps";
+  progress?: number;
+  unlockedRewards?: Reward[];
+  tier?: string | null;
 }
 
 export interface Visit {
@@ -101,7 +107,7 @@ export const getCustomers = async (businessId: number) => {
   return fetchApi(`/businesses/${businessId}/customers`);
 };
 
-export const createCustomer = async (businessId: number, data: Omit<Customer, "id" | "businessId" | "visits" | "points" | "cardNumber" | "rewardStatus" | "createdAt">) => {
+export const createCustomer = async (businessId: number, data: { name: string; phone: string }) => {
   return fetchApi(`/businesses/${businessId}/customers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -115,11 +121,13 @@ export const getCustomer = async (customerId: string) => {
   return response.json();
 };
 
-export const recordVisit = async (customerId: string, opts: { serviceId?: number; variantId?: number } = {}) => {
+export interface VisitItem { serviceId?: number; variantId?: number; employeeId?: number; }
+
+export const recordVisit = async (customerId: string, items: VisitItem[]) => {
   return fetchApi(`/customers/${customerId}/visits`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(opts),
+    body: JSON.stringify({ items }),
   });
 };
 
@@ -129,9 +137,11 @@ export const getVisits = async (customerId: string) => {
   return response.json();
 };
 
-export const redeemReward = async (customerId: string) => {
+export const redeemReward = async (customerId: string, rewardId: number) => {
   return fetchApi(`/customers/${customerId}/redeem`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rewardId }),
   });
 };
 
@@ -157,6 +167,18 @@ export const createService = async (businessId: number, data: any) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
+};
+
+export const updateService = async (serviceId: number, data: any) => {
+  return fetchApi(`/services/${serviceId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+};
+
+export const deleteService = async (serviceId: number) => {
+  return fetchApi(`/services/${serviceId}`, { method: 'DELETE' });
 };
 
 export const deleteEmployee = async (employeeId: number) => {
@@ -304,3 +326,64 @@ export const updateMemberRole = async (memberId: number, role: "admin" | "staff"
 export const deleteMember = async (memberId: number) => {
   return fetchApi(`/members/${memberId}`, { method: 'DELETE' });
 };
+
+// --- Loyalty engine: mode, rewards, tiers ---
+export type LoyaltyMode = "visits" | "points" | "stamps";
+
+export const getLoyaltySettings = async (businessId: number): Promise<{ mode: LoyaltyMode }> => {
+  return fetchApi(`/businesses/${businessId}/loyalty-settings`);
+};
+
+export const updateLoyaltySettings = async (businessId: number, mode: LoyaltyMode) => {
+  return fetchApi(`/businesses/${businessId}/loyalty-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+};
+
+export interface Reward {
+  id: number;
+  businessId: number;
+  label: string;
+  threshold: number;
+  type: "discount_amount" | "discount_percent" | "free_service" | "product" | "custom";
+  value?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export const getRewards = async (businessId: number): Promise<Reward[]> => fetchApi(`/businesses/${businessId}/rewards`);
+
+export const createReward = async (businessId: number, data: Omit<Reward, "id" | "businessId" | "active" | "createdAt">) => {
+  return fetchApi(`/businesses/${businessId}/rewards`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+};
+
+export const updateReward = async (rewardId: number, data: Partial<Reward>) => {
+  return fetchApi(`/rewards/${rewardId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+};
+
+export const deleteReward = async (rewardId: number) => fetchApi(`/rewards/${rewardId}`, { method: 'DELETE' });
+
+export interface Tier {
+  id: number;
+  businessId: number;
+  name: string;
+  threshold: number;
+  perks?: string;
+  createdAt: string;
+}
+
+export const getTiers = async (businessId: number): Promise<Tier[]> => fetchApi(`/businesses/${businessId}/tiers`);
+
+export const createTier = async (businessId: number, data: Omit<Tier, "id" | "businessId" | "createdAt">) => {
+  return fetchApi(`/businesses/${businessId}/tiers`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+};
+
+export const deleteTier = async (tierId: number) => fetchApi(`/tiers/${tierId}`, { method: 'DELETE' });

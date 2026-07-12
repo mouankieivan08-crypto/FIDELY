@@ -8,6 +8,7 @@ export default function Services() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [servicesList, setServicesList] = useState<any[]>([]);
   const [businessId, setBusinessId] = useState<number | null>(null);
   const [categoriesList, setCategoriesList] = useState<Category[]>([]);
@@ -93,7 +94,8 @@ export default function Services() {
 
   const handleCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!businessId) return;
+    if (!businessId || saving) return;
+    setSaving(true);
     setFormError("");
     try {
       const newSvc = await createService(businessId, {
@@ -108,7 +110,7 @@ export default function Services() {
     } catch (error) {
       console.error("Error creating service:", error);
       setFormError((error as Error).message || "Échec de la création de la prestation.");
-    }
+    } finally { setSaving(false); }
   };
 
   return (
@@ -304,8 +306,8 @@ export default function Services() {
                 </div>
               </div>
               <div className="pt-4">
-                <button type="submit" className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
-                  Enregistrer
+                <button type="submit" disabled={saving} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50">
+                  {saving ? "..." : "Enregistrer"}
                 </button>
               </div>
             </form>

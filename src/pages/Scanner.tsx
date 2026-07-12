@@ -52,7 +52,7 @@ export default function Scanner() {
     setValidating(true);
     setError("");
     try {
-      const res = await recordVisit(scanned.id, { serviceId: parseInt(chosenService) });
+      const res = await recordVisit(scanned.id, [{ serviceId: parseInt(chosenService) }]);
       setSuccess({
         name: scanned.name,
         msg: `+${res.earnedPoints} points (${res.serviceName || "prestation"}) · Total : ${res.newPoints} pts, ${res.newVisits} visites`,
