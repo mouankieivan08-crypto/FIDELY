@@ -544,6 +544,7 @@ export function createApiApp() {
     selfieUrl: z.string().max(2_000_000).optional(),
     locationLat: z.string().max(50).optional(),
     locationLng: z.string().max(50).optional(),
+    livenessConfirmed: z.string().max(20).optional(),
   });
 
   app.post("/api/employees/:id/clock-in", requireAuth, async (req: AuthRequest, res) => {
@@ -576,6 +577,7 @@ export function createApiApp() {
               selfieUrl: parsed.data.selfieUrl,
               locationLat: parsed.data.locationLat,
               locationLng: parsed.data.locationLng,
+              livenessConfirmed: parsed.data.livenessConfirmed ?? "false",
             })
           )
           .select()
@@ -858,11 +860,13 @@ export function createApiApp() {
     try {
       const rows = unwrap(await supabase.from("members").select("*").eq("id", parseInt(req.params.id)).limit(1));
       if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
-      const member = toCamelCase<{ businessId: number }>(rows[0]);
+      const member = toCamelCase<{ businessId: number; uid?: string }>(rows[0]);
       const access = await loadAccess(req, res, member.businessId);
       if (!access) return;
       if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
       unwrap(await supabase.from("members").delete().eq("id", parseInt(req.params.id)));
+      // Supprimer aussi le compte de connexion pour qu'il ne puisse plus se connecter
+      if (member.uid) { try { await supabase.auth.admin.deleteUser(member.uid); } catch {} }
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });

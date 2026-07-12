@@ -167,7 +167,7 @@ export const getTimeLogs = async (businessId: number) => {
   return fetchApi(`/businesses/${businessId}/time-logs`);
 };
 
-export const clockIn = async (employeeId: number, data: { selfieUrl?: string; locationLat?: string; locationLng?: string }) => {
+export const clockIn = async (employeeId: number, data: { selfieUrl?: string; locationLat?: string; locationLng?: string; livenessConfirmed?: string }) => {
   return fetchApi(`/employees/${employeeId}/clock-in`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

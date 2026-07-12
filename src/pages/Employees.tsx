@@ -5,6 +5,7 @@ import { Camera, CheckCircle, Clock, Briefcase, Plus, User, Tag, Key, X, Trash2,
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { getBusiness, getEmployees, createEmployee, deleteEmployee, getTimeLogs, clockIn, clockOut, Employee } from "../services/db";
+import { matchFaces, loadFaceModels } from "../lib/face";
 
 export default function Employees() {
   const { user } = useAuth();
@@ -99,10 +100,23 @@ export default function Employees() {
     }
     setPointageStatus('verifying');
     try {
-      const selfieUrl = webcamRef.current?.getScreenshot();
-      const location = await getLocation();
       if (mode === 'in') {
-        await clockIn(parseInt(pointageEmployeeId), { selfieUrl, ...location });
+        const selfieUrl = webcamRef.current?.getScreenshot();
+        if (!selfieUrl) throw new Error("Impossible de capturer la photo. Autorisez la caméra.");
+        const emp = employees.find(e => e.id === parseInt(pointageEmployeeId));
+        let liveness = "no-ref";
+        if (emp?.avatarUrl) {
+          const r = await matchFaces(selfieUrl, emp.avatarUrl);
+          if (r.error) { setPointageStatus('idle'); setPointageError(r.error); return; }
+          if (!r.matched) {
+            setPointageStatus('idle');
+            setPointageError(`Visage non reconnu (écart ${r.distance.toFixed(2)}). Pointage refusé — ce n'est pas la personne inscrite.`);
+            return;
+          }
+          liveness = "true";
+        }
+        const location = await getLocation();
+        await clockIn(parseInt(pointageEmployeeId), { selfieUrl, ...location, livenessConfirmed: liveness });
       } else {
         await clockOut(parseInt(pointageEmployeeId));
       }
@@ -113,7 +127,7 @@ export default function Employees() {
       setPointageStatus('idle');
       setPointageError((error as Error).message || "Échec du pointage.");
     }
-  }, [webcamRef, pointageEmployeeId]);
+  }, [webcamRef, pointageEmployeeId, employees]);
 
   if (loading) return <Layout><div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" /></div></Layout>;
 
@@ -139,7 +153,7 @@ export default function Employees() {
         </div>
         <div className="flex bg-gray-200 p-1 rounded-lg">
           <button
-            onClick={() => setActiveTab('pointage')}
+            onClick={() => { setActiveTab('pointage'); loadFaceModels().catch(() => {}); }}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'pointage' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:text-gray-900'}`}
           >
             Pointage
@@ -205,7 +219,7 @@ export default function Employees() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 text-center border-b border-gray-100">
               <h2 className="text-xl font-bold text-gray-900">Terminal de Pointage</h2>
-              <p className="text-sm text-gray-500 mt-1">Photo et géolocalisation horodatées à chaque pointage</p>
+              <p className="text-sm text-gray-500 mt-1">Reconnaissance faciale (comparée à la photo d'inscription) + géolocalisation horodatée</p>
             </div>
 
             <div className="p-6 bg-gray-50 flex flex-col items-center">
@@ -243,8 +257,8 @@ export default function Employees() {
                     <div className="absolute inset-0 bg-indigo-500/80 z-10 flex items-center justify-center backdrop-blur-sm">
                       <div className="text-white font-bold flex flex-col items-center p-4 text-center">
                         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white mb-4"></div>
-                        <p className="text-sm">Enregistrement en cours...</p>
-                        <p className="text-xs font-normal opacity-80 mt-1">Capture de la photo et de la position</p>
+                        <p className="text-sm">Reconnaissance faciale...</p>
+                        <p className="text-xs font-normal opacity-80 mt-1">Comparaison avec la photo d'inscription</p>
                       </div>
                     </div>
                   )}
