@@ -807,7 +807,7 @@ export function createApiApp() {
         uid = created.data.user.id;
       } else {
         const list = await supabase.auth.admin.listUsers();
-        const existing = list.data.users.find((u) => u.email === email);
+        const existing = list.data.users.find((u: any) => u.email === email);
         if (existing) uid = existing.id;
         else return res.status(400).json({ error: created.error?.message || "Impossible de créer le compte." });
       }
