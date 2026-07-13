@@ -725,7 +725,9 @@ export function createApiApp() {
     avatarUrl: z.string().max(2_000_000).optional(),
   });
 
-  app.post("/api/businesses/:id/employees", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  // Ajout d'un employé : autorisé au staff aussi (utile pour s'auto-inscrire au pointage).
+  // La SUPPRESSION reste réservée à l'administrateur (voir DELETE /employees/:id ci-dessous).
+  app.post("/api/businesses/:id/employees", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createEmployeeSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);

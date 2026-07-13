@@ -410,17 +410,15 @@ export default function Employees() {
 
       {activeTab === 'list' && (
         <>
-          {role === 'admin' && (
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => { setFormError(""); setShowAddModal(true); }}
-                className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Ajouter un employé
-              </button>
-            </div>
-          )}
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => { setFormError(""); setShowAddModal(true); }}
+              className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Ajouter un employé
+            </button>
+          </div>
 
           {loading ? (
             <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
@@ -428,17 +426,13 @@ export default function Employees() {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
               <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900">Aucun employé</h3>
-              {role === 'admin' ? (
-                <>
-                  <p className="text-gray-500 mt-1">Ajoutez votre premier collaborateur pour commencer.</p>
-                  <button
-                    onClick={() => { setFormError(""); setShowAddModal(true); }}
-                    className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                  >
-                    Ajouter un employé
-                  </button>
-                </>
-              ) : <p className="text-gray-500 mt-1">Aucun collaborateur pour le moment.</p>}
+              <p className="text-gray-500 mt-1">Ajoutez le premier collaborateur pour commencer.</p>
+              <button
+                onClick={() => { setFormError(""); setShowAddModal(true); }}
+                className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Ajouter un employé
+              </button>
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
