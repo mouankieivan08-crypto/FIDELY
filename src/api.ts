@@ -239,25 +239,34 @@ export function createApiApp() {
   const createCustomerSchema = z.object({
     name: z.string().trim().min(1).max(200),
     phone: z.string().trim().min(1).max(30),
+    // Carte de fidélité optionnelle : true (défaut) attribue une carte, false crée
+    // juste la fiche client (retrouvable, mais sans carte tant qu'on ne lui en attribue pas une).
+    hasCard: z.boolean().optional(),
   });
+
+  // Génère un numéro de carte court et lisible (ex: "D4451"), unique dans l'entreprise.
+  const generateCardNumber = async (businessId: number): Promise<string> => {
+    for (let i = 0; i < 20; i++) {
+      const letter = "ABCDEFGHJKLMNPRSTUVWXYZ"[Math.floor(Math.random() * 22)];
+      const candidate = letter + Math.floor(1000 + Math.random() * 9000);
+      const clash = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId).eq("card_number", candidate).limit(1));
+      if (!clash || clash.length === 0) return candidate;
+    }
+    return "C" + Date.now().toString().slice(-5);
+  };
 
   app.post("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createCustomerSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const businessId = parseInt(req.params.id);
+      const wantsCard = parsed.data.hasCard !== false; // carte attribuée par défaut
 
-      // Cryptographically random, unguessable card id (public card URLs rely on this being unenumerable)
+      // Cryptographically random, unguessable client id (public card URLs rely on this being unenumerable)
       const id = "CARD-" + randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
 
-      // Short, human-readable card number for search/display (e.g. "D4451"), unique per business
-      let cardNumber = "";
-      for (let i = 0; i < 12; i++) {
-        const letter = "ABCDEFGHJKLMNPRSTUVWXYZ"[Math.floor(Math.random() * 22)];
-        const candidate = letter + Math.floor(1000 + Math.random() * 9000);
-        const clash = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId).eq("card_number", candidate).limit(1));
-        if (!clash || clash.length === 0) { cardNumber = candidate; break; }
-      }
+      // Carte de fidélité : numéro attribué seulement si demandé (sinon null = pas de carte).
+      const cardNumber = wantsCard ? await generateCardNumber(businessId) : null;
 
       // Sequential unique client code CL-0001, CL-0002... (never reused/duplicated)
       const countRows = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId));
@@ -282,6 +291,35 @@ export function createApiApp() {
           .select()
           .single()
       );
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const assignCardSchema = z.object({ cardNumber: z.string().trim().max(30).optional() });
+
+  // Attribuer (ou remplacer) une carte de fidélité à un client existant. Le numéro est
+  // auto-généré, ou fourni (ex: numéro d'une carte physique pré-imprimée). Admin + staff.
+  app.post("/api/customers/:id/card", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const custs = unwrap(await supabase.from("customers").select("*").eq("id", req.params.id).limit(1));
+      if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
+      const customer = toCamelCase<{ businessId: number }>(custs[0]);
+      const access = await loadAccess(req, res, customer.businessId);
+      if (!access) return; // response already sent
+      const parsed = assignCardSchema.safeParse(req.body || {});
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      let cardNumber = (parsed.data.cardNumber || "").trim();
+      if (cardNumber) {
+        const clash = unwrap(
+          await supabase.from("customers").select("id").eq("business_id", customer.businessId).eq("card_number", cardNumber).neq("id", req.params.id).limit(1)
+        );
+        if (clash && clash.length > 0) return res.status(400).json({ error: "Ce numéro de carte est déjà attribué à un autre client." });
+      } else {
+        cardNumber = await generateCardNumber(customer.businessId);
+      }
+      const result = unwrap(await supabase.from("customers").update({ card_number: cardNumber }).eq("id", req.params.id).select().single());
       res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -374,7 +412,7 @@ export function createApiApp() {
 
       const custs = unwrap(await supabase.from("customers").select("*").eq("id", customerId).limit(1));
       if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
-      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number }>(custs[0]);
+      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number; name: string }>(custs[0]);
 
       const business = await loadOwnedBusiness(req, res, customer.businessId);
       if (!business) return; // response already sent
@@ -450,7 +488,8 @@ export function createApiApp() {
           }))
         );
       }
-      totalAmount = Math.max(0, totalAmount - discount) + tip;
+      const netPrestations = Math.max(0, totalAmount - discount); // chiffre d'affaires prestations (hors pourboire)
+      totalAmount = netPrestations + tip;                         // total encaissé (avec pourboire)
 
       const mode = await getLoyaltyMode(customer.businessId);
       const newVisits = customer.visits + 1; // one checkout = one visit, regardless of number of services
@@ -467,6 +506,26 @@ export function createApiApp() {
           visits: newVisits, points: newPoints, stamps: newStamps, reward_status: newRewardStatus,
         }).eq("id", customerId)
       );
+
+      // Comptabilité automatique : chaque vente crée une écriture crédit (source unique).
+      // Le pourboire n'est PAS compté comme chiffre d'affaires ; les prestations offertes non plus.
+      // Best-effort : si l'écriture échoue, la vente reste enregistrée (on ne casse pas la caisse).
+      if (netPrestations > 0) {
+        try {
+          const label = `Vente — ${customer.name}${performedNames.length ? " : " + performedNames.join(", ") : ""}`;
+          unwrap(await supabase.from("transactions").insert(toSnakeCase({
+            businessId: customer.businessId,
+            type: "credit",
+            amount: netPrestations,
+            category: "Vente",
+            description: label.slice(0, 500),
+            date: new Date(),
+            createdBy: req.user!.uid,
+          })));
+        } catch (e) {
+          console.error("Compta auto (vente) échouée:", (e as Error).message);
+        }
+      }
 
       res.json({
         newVisits, newPoints, newStamps, earnedPoints: totalPoints, amount: totalAmount,

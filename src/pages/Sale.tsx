@@ -52,6 +52,7 @@ export default function Sale() {
   const [showNewClient, setShowNewClient] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [newHasCard, setNewHasCard] = useState(true);
   const [creatingClient, setCreatingClient] = useState(false);
   const [clientError, setClientError] = useState("");
 
@@ -139,10 +140,10 @@ export default function Sale() {
     setCreatingClient(true);
     setClientError("");
     try {
-      const c = await createCustomer(businessId, { name: newName.trim(), phone: newPhone.trim() });
+      const c = await createCustomer(businessId, { name: newName.trim(), phone: newPhone.trim(), hasCard: newHasCard });
       setCustomers(prev => [...prev, c]);
       selectClient(c);
-      setNewName(""); setNewPhone("");
+      setNewName(""); setNewPhone(""); setNewHasCard(true);
     } catch (e) {
       setClientError((e as Error).message || "Échec de la création.");
     } finally { setCreatingClient(false); }
@@ -340,6 +341,10 @@ export default function Sale() {
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Phone className="h-4 w-4 text-gray-400" /></div>
                         <input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Téléphone" type="tel" className="w-full pl-9 border-gray-200 rounded-lg text-sm" />
                       </div>
+                      <label className="flex items-center text-xs text-gray-700 cursor-pointer">
+                        <input type="checkbox" checked={newHasCard} onChange={e => setNewHasCard(e.target.checked)} className="mr-2 rounded" />
+                        Attribuer une carte de fidélité
+                      </label>
                       <button onClick={handleCreateClient} disabled={creatingClient || !newName.trim() || !newPhone.trim()}
                         className="w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
                         {creatingClient ? "Création..." : "Créer et sélectionner"}

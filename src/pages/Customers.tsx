@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import {
   getBusiness, getCustomers, createCustomer, getServices, getVariants, getEmployees, getVisits,
-  recordVisit, redeemReward, getLoyaltySettings, lookupCustomerByPhone, VisitItem,
+  recordVisit, redeemReward, getLoyaltySettings, lookupCustomerByPhone, assignCard, VisitItem,
   Customer, ServiceVariant, LoyaltyMode,
 } from "../services/db";
 import Layout from "../components/Layout";
@@ -36,9 +36,11 @@ export default function Customers() {
   // Quick phone-first lookup
   const [phoneQuery, setPhoneQuery] = useState("");
   const [quickName, setQuickName] = useState("");
+  const [quickHasCard, setQuickHasCard] = useState(true);
   const [creatingQuick, setCreatingQuick] = useState(false);
   const [quickError, setQuickError] = useState("");
   const [serverMatch, setServerMatch] = useState<Customer | null>(null); // recherche serveur (staff)
+  const [assigningCard, setAssigningCard] = useState(false);
 
   // Detail / cart state
   const [selected, setSelected] = useState<Customer | null>(null);
@@ -110,10 +112,11 @@ export default function Customers() {
     setCreatingQuick(true);
     setQuickError("");
     try {
-      const c = await createCustomer(businessId, { name: quickName.trim(), phone: phoneQuery.trim() });
+      const c = await createCustomer(businessId, { name: quickName.trim(), phone: phoneQuery.trim(), hasCard: quickHasCard });
       setCustomers(prev => [...prev, c]);
       setPhoneQuery("");
       setQuickName("");
+      setQuickHasCard(true);
       openDetail(c);
     } catch (err) {
       setQuickError((err as Error).message || "Échec de la création.");
@@ -213,6 +216,20 @@ export default function Customers() {
     } finally { setRedeeming(false); }
   };
 
+  const handleAssignCard = async () => {
+    if (!selected || assigningCard) return;
+    setAssigningCard(true);
+    setDetailError("");
+    try {
+      const updated = await assignCard(selected.id);
+      setSelected(prev => prev ? { ...prev, cardNumber: updated.cardNumber } : prev);
+      setCustomers(prev => prev.map(c => c.id === selected.id ? { ...c, cardNumber: updated.cardNumber } : c));
+      setValidateMsg(`Carte de fidélité attribuée : N° ${updated.cardNumber}`);
+    } catch (err) {
+      setDetailError((err as Error).message || "Échec de l'attribution de la carte.");
+    } finally { setAssigningCard(false); }
+  };
+
   const q = searchTerm.trim().toLowerCase();
   const filteredCustomers = customers.filter(c =>
     !q || c.name.toLowerCase().includes(q) || (c.phone || "").includes(searchTerm) ||
@@ -261,6 +278,10 @@ export default function Customers() {
                   {creatingQuick ? "Création..." : "Créer le client"}
                 </button>
               </div>
+              <label className="flex items-center text-xs text-amber-800 mt-2 cursor-pointer">
+                <input type="checkbox" checked={quickHasCard} onChange={e => setQuickHasCard(e.target.checked)} className="mr-2 rounded" />
+                Attribuer une carte de fidélité à ce client
+              </label>
             </div>
           )
         )}
@@ -344,7 +365,14 @@ export default function Customers() {
                   <p className="text-[11px] text-gray-500 uppercase font-medium">Niveau</p>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xl font-bold text-gray-900 flex items-center justify-center"><CreditCard className="h-4 w-4 mr-1 text-gray-400" />{selected.cardNumber || "—"}</p>
+                  {selected.cardNumber ? (
+                    <p className="text-xl font-bold text-gray-900 flex items-center justify-center"><CreditCard className="h-4 w-4 mr-1 text-gray-400" />{selected.cardNumber}</p>
+                  ) : (
+                    <button onClick={handleAssignCard} disabled={assigningCard}
+                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 flex items-center justify-center mx-auto py-1">
+                      <CreditCard className="h-4 w-4 mr-1" />{assigningCard ? "..." : "Attribuer une carte"}
+                    </button>
+                  )}
                   <p className="text-[11px] text-gray-500 uppercase font-medium">Carte</p>
                 </div>
               </div>

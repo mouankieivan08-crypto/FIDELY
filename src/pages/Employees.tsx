@@ -16,6 +16,8 @@ export default function Employees() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [timeLogs, setTimeLogs] = useState<any[]>([]);
   const [historyFilter, setHistoryFilter] = useState("");
+  const [histPeriod, setHistPeriod] = useState<'jour' | 'semaine' | 'mois' | 'tout'>('mois');
+  const [histDate, setHistDate] = useState(new Date().toISOString().split('T')[0]);
   const [role, setRole] = useState<string>('admin');
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -76,6 +78,40 @@ export default function Employees() {
       return { ...emp, passageCount: logs.length, lastPassages: logs.slice(0, 2) };
     })
     .sort((a, b) => b.passageCount - a.passageCount);
+
+  // --- Historique : bornes de la période sélectionnée ---
+  const histRange = (() => {
+    if (histPeriod === 'tout') return { from: 0, to: Number.MAX_SAFE_INTEGER, label: 'Tout l’historique' };
+    const d = new Date(histDate + 'T00:00:00');
+    let start = new Date(d), end = new Date(d);
+    let label = '';
+    if (histPeriod === 'jour') {
+      end.setHours(23, 59, 59, 999);
+      label = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    } else if (histPeriod === 'semaine') {
+      start.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // lundi
+      end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+      label = `Semaine du ${start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`;
+    } else {
+      start = new Date(d.getFullYear(), d.getMonth(), 1);
+      end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+      label = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    }
+    return { from: start.getTime(), to: end.getTime(), label };
+  })();
+
+  const periodLogs = timeLogs.filter(l => {
+    const t = l.clockInTime ? new Date(l.clockInTime).getTime() : 0;
+    return t >= histRange.from && t <= histRange.to;
+  });
+  const visibleLogs = periodLogs
+    .filter(l => !historyFilter || String(l.employeeId) === historyFilter)
+    .sort((a, b) => new Date(b.clockInTime).getTime() - new Date(a.clockInTime).getTime());
+  // Bilan classé par employé sur la période (le plus assidu en premier).
+  const bilan = employees
+    .map(e => ({ id: e.id, name: e.name, count: periodLogs.filter(l => l.employeeId === e.id).length }))
+    .sort((a, b) => b.count - a.count);
+  const totalPointages = periodLogs.length;
 
   const [savingEmp, setSavingEmp] = useState(false);
   const handleAddEmployee = async (e: React.FormEvent) => {
@@ -178,46 +214,94 @@ export default function Employees() {
       </div>
 
       {activeTab === 'historique' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
-            <span className="text-sm font-medium text-gray-900 flex items-center"><History className="h-4 w-4 text-indigo-500 mr-2" />Historique des pointages</span>
-            <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)} className="text-sm border-gray-200 rounded-lg">
+        <div className="space-y-6">
+          {/* Filtres période + date + employé */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              {([['jour', 'Jour'], ['semaine', 'Semaine'], ['mois', 'Mois'], ['tout', 'Tout']] as const).map(([val, lbl]) => (
+                <button key={val} onClick={() => setHistPeriod(val)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${histPeriod === val ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-900'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            {histPeriod !== 'tout' && (
+              <input type="date" value={histDate} onChange={e => setHistDate(e.target.value)} className="border-gray-200 rounded-lg text-sm py-1.5" />
+            )}
+            <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)} className="text-sm border-gray-200 rounded-lg py-1.5 sm:ml-auto">
               <option value="">Tous les employés</option>
               {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
-          {timeLogs.filter(l => !historyFilter || String(l.employeeId) === historyFilter).length === 0 ? (
-            <div className="p-8 text-center text-gray-500">Aucun pointage enregistré pour le moment.</div>
-          ) : (
-            <div className="overflow-x-auto">
+
+          {/* Bilan par employé (période) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-900 flex items-center"><History className="h-4 w-4 text-indigo-500 mr-2" />Bilan des pointages — {histRange.label}</span>
+              <span className="text-xs text-gray-500">{totalPointages} pointage{totalPointages > 1 ? 's' : ''}</span>
+            </div>
+            {bilan.every(b => b.count === 0) ? (
+              <div className="p-6 text-center text-gray-500 text-sm">Aucun pointage sur cette période.</div>
+            ) : (
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
+                    <th className="px-6 py-3">#</th>
                     <th className="px-6 py-3">Employé</th>
-                    <th className="px-6 py-3">Arrivée</th>
-                    <th className="px-6 py-3">Départ</th>
-                    <th className="px-6 py-3">Photo</th>
+                    <th className="px-6 py-3 text-right">Pointages</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {timeLogs.filter(l => !historyFilter || String(l.employeeId) === historyFilter).map((log) => (
-                    <tr key={log.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{log.employeeName}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        <span className="flex items-center"><LogIn className="h-3.5 w-3.5 mr-1 text-green-500" />{log.clockInTime ? new Date(log.clockInTime).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {log.clockOutTime ? <span className="flex items-center"><LogOut className="h-3.5 w-3.5 mr-1 text-gray-400" />{new Date(log.clockOutTime).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> : <span className="text-green-600 text-xs font-medium">En cours</span>}
-                      </td>
-                      <td className="px-6 py-4">
-                        {log.selfieUrl ? <img src={log.selfieUrl} alt="pointage" className="h-9 w-9 rounded-lg object-cover border border-gray-200" /> : <span className="text-gray-300 text-xs">—</span>}
-                      </td>
+                  {bilan.map((b, i) => (
+                    <tr key={b.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-3 text-sm text-gray-400">{b.count > 0 ? i + 1 : '—'}</td>
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{i === 0 && b.count > 0 && <span className="mr-1.5">🏆</span>}{b.name}</td>
+                      <td className="px-6 py-3 text-right"><span className="inline-block min-w-[2rem] text-sm font-bold text-indigo-600">{b.count}</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+
+          {/* Détail (lecture seule) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+              <span className="text-sm font-medium text-gray-900">Détail des pointages (lecture seule)</span>
             </div>
-          )}
+            {visibleLogs.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">Aucun pointage sur cette période.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
+                      <th className="px-6 py-3">Employé</th>
+                      <th className="px-6 py-3">Arrivée</th>
+                      <th className="px-6 py-3">Départ</th>
+                      <th className="px-6 py-3">Photo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {visibleLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{log.employeeName}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          <span className="flex items-center"><LogIn className="h-3.5 w-3.5 mr-1 text-green-500" />{log.clockInTime ? new Date(log.clockInTime).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {log.clockOutTime ? <span className="flex items-center"><LogOut className="h-3.5 w-3.5 mr-1 text-gray-400" />{new Date(log.clockOutTime).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> : <span className="text-green-600 text-xs font-medium">En cours</span>}
+                        </td>
+                        <td className="px-6 py-4">
+                          {log.selfieUrl ? <img src={log.selfieUrl} alt="pointage" className="h-9 w-9 rounded-lg object-cover border border-gray-200" /> : <span className="text-gray-300 text-xs">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -118,11 +118,20 @@ export const lookupCustomerByPhone = async (businessId: number, phone: string): 
   return fetchApi(`/businesses/${businessId}/customers/lookup?phone=${encodeURIComponent(phone)}`);
 };
 
-export const createCustomer = async (businessId: number, data: { name: string; phone: string }) => {
+export const createCustomer = async (businessId: number, data: { name: string; phone: string; hasCard?: boolean }) => {
   return fetchApi(`/businesses/${businessId}/customers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+  });
+};
+
+// Attribue (ou remplace) une carte de fidélité à un client. Numéro auto si non fourni.
+export const assignCard = async (customerId: string, cardNumber?: string): Promise<Customer> => {
+  return fetchApi(`/customers/${customerId}/card`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cardNumber ? { cardNumber } : {}),
   });
 };
 
