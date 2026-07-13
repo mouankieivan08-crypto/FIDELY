@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond, Wallet, Shield, Tag } from "lucide-react";
+import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond, Wallet, Shield, Tag, ShoppingCart } from "lucide-react";
 import { useState, useEffect } from "react";
 import React from "react";
 import { cn } from "../lib/utils";
@@ -31,6 +31,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // Staff a accès à tout, sauf Personnel et Rapports (réservés admin).
   const navItems = [
     { name: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard, adminOnly: false },
+    { name: "Vendre (Caisse)", href: "/vente", icon: ShoppingCart, adminOnly: false },
     { name: "Agenda", href: "/appointments", icon: CalendarIcon, adminOnly: false },
     { name: "Clients", href: "/customers", icon: Users, adminOnly: false },
     { name: "Employés", href: "/employees", icon: Briefcase, adminOnly: false },

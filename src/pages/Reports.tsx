@@ -1,138 +1,115 @@
 import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import { Download, FileText, TrendingUp, Users, Lock } from "lucide-react";
+import { Download, Lock, ShoppingBag, Scissors, Percent, Gift, HandCoins, Wallet } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, getAppointments, getServices, getCustomers, getTransactions } from "../services/db";
+import { getBusiness, getSalesSummary, getTransactions, SalesSummary } from "../services/db";
 
-const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'];
-const FULL_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR");
+const fmt = (n: number) => Math.round(n ?? 0).toLocaleString("fr-FR");
+const PERIODS = ["Jour", "Semaine", "Mois", "Année", "Personnalisé"] as const;
+type Period = typeof PERIODS[number];
+
+function rangeFor(period: Period, ref: string, cFrom: string, cTo: string): { from?: string; to?: string; label: string } {
+  if (period === "Personnalisé") {
+    return {
+      from: cFrom ? new Date(cFrom + "T00:00:00").toISOString() : undefined,
+      to: cTo ? new Date(cTo + "T23:59:59").toISOString() : undefined,
+      label: `${cFrom || "…"} → ${cTo || "…"}`,
+    };
+  }
+  const d = new Date(ref); d.setHours(0, 0, 0, 0);
+  let start = new Date(d), end = new Date(d);
+  let label = "";
+  if (period === "Jour") {
+    end.setHours(23, 59, 59, 999);
+    label = d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  } else if (period === "Semaine") {
+    start.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // lundi
+    end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+    label = `Semaine du ${start.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`;
+  } else if (period === "Mois") {
+    start = new Date(d.getFullYear(), d.getMonth(), 1);
+    end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+    label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  } else {
+    start = new Date(d.getFullYear(), 0, 1);
+    end = new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
+    label = `Année ${d.getFullYear()}`;
+  }
+  return { from: start.toISOString(), to: end.toISOString(), label };
+}
 
 export default function Reports() {
   const { user } = useAuth();
   const [business, setBusiness] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState(MONTH_LABELS.map(name => ({ name, ca: 0 })));
-  const [store, setStore] = useState<{ appointments: any[]; services: any[]; customers: any[]; transactions: any[] }>(
-    { appointments: [], services: [], customers: [], transactions: [] }
-  );
+  const [period, setPeriod] = useState<Period>("Mois");
+  const [refDate, setRefDate] = useState(new Date().toISOString().split("T")[0]);
+  const [cFrom, setCFrom] = useState(new Date().toISOString().split("T")[0]);
+  const [cTo, setCTo] = useState(new Date().toISOString().split("T")[0]);
+  const [summary, setSummary] = useState<SalesSummary | null>(null);
+  const [expenses, setExpenses] = useState(0);
 
+  const range = rangeFor(period, refDate, cFrom, cTo);
+
+  useEffect(() => { if (user) getBusiness(user.id).then(b => { setBusiness(b); setLoading(false); }); }, [user]);
   useEffect(() => {
-    if (!user) return;
-    (async () => {
-      try {
-        const rest = await getBusiness(user.id);
-        setBusiness(rest);
-        if (!rest) return;
-        const [appointments, services, customers, transactions] = await Promise.all([
-          getAppointments(rest.id), getServices(rest.id), getCustomers(rest.id), getTransactions(rest.id).catch(() => []),
-        ]);
-        setStore({ appointments, services, customers, transactions });
-        const priceByService = new Map<number, number>(services.map((s: any) => [s.id, s.price]));
-        const currentYear = new Date().getFullYear();
-        const revenueByMonth = new Array(12).fill(0);
-        appointments
-          .filter((a: any) => a.status === 'completed' && new Date(a.startTime).getFullYear() === currentYear)
-          .forEach((a: any) => { revenueByMonth[new Date(a.startTime).getMonth()] += (priceByService.get(a.serviceId) || 0) / 100; });
-        setData(MONTH_LABELS.map((name, i) => ({ name, ca: revenueByMonth[i] })));
-      } catch (error) {
-        console.error("Error loading reports data:", error);
-      } finally { setLoading(false); }
-    })();
-  }, [user]);
+    if (!business) return;
+    const { from, to } = range;
+    getSalesSummary(business.id, from, to).then(setSummary).catch(() => setSummary(null));
+    getTransactions(business.id, from, to).then((tx: any[]) => {
+      setExpenses(tx.filter(t => t.type === "debit").reduce((s, t) => s + t.amount, 0));
+    }).catch(() => setExpenses(0));
+  }, [business, period, refDate, cFrom, cTo]);
 
-  const buildReport = (title: string) => {
+  const s = summary;
+  const netResult = (s?.collected || 0) - expenses;
+
+  const chartData = (s?.series || []).map(p => ({
+    name: new Date(p.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
+    total: p.total,
+  }));
+
+  const buildReport = () => {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthLabel = `${FULL_MONTHS[now.getMonth()]} ${now.getFullYear()}`;
-    const { appointments, services, customers, transactions } = store;
-    const priceByService = new Map<number, number>(services.map((s: any) => [s.id, s.price]));
-
-    const inMonth = (d: string) => new Date(d) >= monthStart;
-    const txMonth = transactions.filter((t: any) => inMonth(t.date));
-    const credits = txMonth.filter((t: any) => t.type === "credit").reduce((s: number, t: any) => s + t.amount, 0);
-    const debits = txMonth.filter((t: any) => t.type === "debit").reduce((s: number, t: any) => s + t.amount, 0);
-    const aptMonth = appointments.filter((a: any) => inMonth(a.startTime));
-    const aptDone = aptMonth.filter((a: any) => a.status === "completed");
-    const caPrestations = aptDone.reduce((s: number, a: any) => s + (priceByService.get(a.serviceId) || 0) / 100, 0);
-    const newClients = customers.filter((c: any) => c.createdAt && inMonth(c.createdAt)).length;
-    const totalPoints = customers.reduce((s: number, c: any) => s + (c.points || 0), 0);
-    const totalVisits = customers.reduce((s: number, c: any) => s + (c.visits || 0), 0);
-
-    // Top prestations (par nombre de RDV terminés ce mois)
-    const svcCount: Record<string, number> = {};
-    aptDone.forEach((a: any) => {
-      const name = services.find((s: any) => s.id === a.serviceId)?.name || "Autre";
-      svcCount[name] = (svcCount[name] || 0) + 1;
-    });
-    const topServices = Object.entries(svcCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-    const row = (label: string, value: string) =>
-      `<tr><td style="padding:8px 0;color:#555">${label}</td><td style="padding:8px 0;text-align:right;font-weight:700">${value}</td></tr>`;
-
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${title} — ${business?.name || "Fidely"}</title>
-<style>
-body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111;max-width:720px;margin:32px auto;padding:0 24px}
-h1{font-size:22px;margin:0} .sub{color:#888;font-size:13px;margin-top:4px}
+    const row = (label: string, value: string, strong = false) =>
+      `<tr><td style="padding:8px 0;color:#555">${label}</td><td style="padding:8px 0;text-align:right;font-weight:${strong ? 800 : 700}">${value}</td></tr>`;
+    const top = (s?.topServices || []).map(t => row(t.name, `${t.count} × · ${fmt(t.amount)} FCFA`)).join("") || `<tr><td style="color:#aaa;padding:8px 0">Aucune vente</td></tr>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Rapport — ${business?.name || "Fidely"}</title>
+<style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#111;max-width:720px;margin:32px auto;padding:0 24px}
+h1{font-size:22px;margin:0}.sub{color:#888;font-size:13px;margin-top:4px}
 .brand{color:#4f46e5;font-weight:800;letter-spacing:2px;text-transform:uppercase;font-size:13px}
 .card{border:1px solid #eee;border-radius:12px;padding:16px 20px;margin-top:16px}
 .card h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#666;margin:0 0 8px}
-table{width:100%;border-collapse:collapse;font-size:14px}
-.big{font-size:26px;font-weight:800}
-.net{color:${credits - debits >= 0 ? "#16a34a" : "#dc2626"}}
-.foot{margin-top:28px;color:#aaa;font-size:12px;text-align:center}
-@media print{.noprint{display:none}}
-</style></head><body>
-<div class="brand">${business?.name || "Fidely"}</div>
-<h1>${title}</h1>
-<div class="sub">Période : ${monthLabel} · Généré le ${now.toLocaleDateString("fr-FR")} à ${now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</div>
-
-<div class="card">
-  <h2>Comptabilité du mois</h2>
-  <table>
-    ${row("Entrées (crédits)", fmt(credits) + " FCFA")}
-    ${row("Sorties (débits)", fmt(debits) + " FCFA")}
-    <tr><td style="padding:10px 0;font-weight:700">Solde net</td><td style="padding:10px 0;text-align:right" class="big net">${fmt(credits - debits)} FCFA</td></tr>
-  </table>
-</div>
-
-<div class="card">
-  <h2>Activité</h2>
-  <table>
-    ${row("Rendez-vous du mois", String(aptMonth.length))}
-    ${row("Rendez-vous terminés", String(aptDone.length))}
-    ${row("CA prestations (terminées)", fmt(caPrestations) + " FCFA")}
-    ${row("Nouveaux clients", String(newClients))}
-  </table>
-</div>
-
-<div class="card">
-  <h2>Fidélité</h2>
-  <table>
-    ${row("Total clients", String(customers.length))}
-    ${row("Total visites cumulées", String(totalVisits))}
-    ${row("Total points distribués", fmt(totalPoints))}
-  </table>
-</div>
-
-<div class="card">
-  <h2>Top prestations du mois</h2>
-  <table>
-    ${topServices.length ? topServices.map(([n, c]) => row(n, c + " RDV")).join("") : `<tr><td style="color:#aaa;padding:8px 0">Aucune prestation terminée ce mois</td></tr>`}
-  </table>
-</div>
-
-<div class="foot">Rapport généré par Fidely · Pour enregistrer en PDF, choisissez « Enregistrer au format PDF » dans la boîte d'impression.</div>
+table{width:100%;border-collapse:collapse;font-size:14px}.big{font-size:24px;font-weight:800}
+.net{color:${netResult >= 0 ? "#16a34a" : "#dc2626"}}.foot{margin-top:28px;color:#aaa;font-size:12px;text-align:center}
+@media print{.noprint{display:none}}</style></head><body>
+<div class="brand">${business?.name || "Fidely"}</div><h1>Rapport de ventes</h1>
+<div class="sub">Période : ${range.label} · Généré le ${now.toLocaleDateString("fr-FR")} à ${now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</div>
+<div class="card"><h2>Ventes</h2><table>
+${row("Prestations réalisées", String(s?.prestations || 0))}
+${row("Nombre de ventes (tickets)", String(s?.tickets || 0))}
+${row("Chiffre d'affaires (net prestations)", fmt(s?.net || 0) + " FCFA")}
+${row("Réductions accordées", fmt(s?.discounts || 0) + " FCFA")}
+${row("Prestations offertes", `${s?.offeredCount || 0} · ${fmt(s?.offeredValue || 0)} FCFA`)}
+${row("Pourboires", fmt(s?.tips || 0) + " FCFA")}
+<tr><td style="padding:10px 0;font-weight:800">Total encaissé</td><td style="padding:10px 0;text-align:right" class="big">${fmt(s?.collected || 0)} FCFA</td></tr>
+</table></div>
+<div class="card"><h2>Résultat</h2><table>
+${row("Total encaissé", fmt(s?.collected || 0) + " FCFA")}
+${row("Dépenses (sorties)", fmt(expenses) + " FCFA")}
+<tr><td style="padding:10px 0;font-weight:800">Résultat net</td><td style="padding:10px 0;text-align:right" class="big net">${fmt(netResult)} FCFA</td></tr>
+</table></div>
+<div class="card"><h2>Top prestations</h2><table>${top}</table></div>
+<div class="foot">Rapport généré par Fidely · « Enregistrer au format PDF » dans la boîte d'impression.</div>
 <div class="noprint" style="text-align:center;margin-top:20px"><button onclick="window.print()" style="padding:10px 20px;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">Imprimer / Enregistrer en PDF</button></div>
 </body></html>`;
   };
 
-  const generate = (title: string) => {
-    const html = buildReport(title);
+  const generate = () => {
     const w = window.open("", "_blank");
     if (!w) { alert("Autorisez les pop-ups pour générer le rapport."); return; }
-    w.document.write(html);
+    w.document.write(buildReport());
     w.document.close();
     setTimeout(() => { try { w.print(); } catch {} }, 400);
   };
@@ -151,58 +128,89 @@ table{width:100%;border-collapse:collapse;font-size:14px}
     );
   }
 
+  const metric = (icon: React.ReactNode, label: string, value: string, sub?: string, tone = "text-gray-900") => (
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+      <div className="flex items-center justify-between mb-2"><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</span>{icon}</div>
+      <p className={`text-2xl font-bold ${tone}`}>{value}</p>
+      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+    </div>
+  );
+
   return (
     <Layout>
-      <div className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Rapports</h1>
-          <p className="text-sm text-gray-500 mt-1">Générez et exportez vos statistiques en PDF</p>
+          <p className="text-sm text-gray-500 mt-1">Généré automatiquement à partir des ventes · {range.label}</p>
         </div>
-        <button onClick={() => generate("Bilan mensuel")}
-          className="flex items-center px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm text-sm font-medium">
+        <button onClick={generate} className="flex items-center px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm text-sm font-medium">
           <Download className="h-4 w-4 mr-2" /> Exporter (PDF)
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-start space-x-4">
-          <div className="bg-indigo-50 p-3 rounded-xl"><FileText className="h-6 w-6 text-indigo-600" /></div>
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Bilan Mensuel</h3>
-            <p className="text-xs text-gray-500 mt-1 mb-2">Comptabilité, activité et fidélité du mois.</p>
-            <button onClick={() => generate("Bilan mensuel")} className="text-sm text-indigo-600 font-medium hover:underline">Générer le rapport</button>
-          </div>
+      {/* Sélecteur de période */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex bg-gray-100 rounded-lg p-1 flex-wrap">
+          {PERIODS.map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === p ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900"}`}>
+              {p}
+            </button>
+          ))}
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-start space-x-4">
-          <div className="bg-green-50 p-3 rounded-xl"><TrendingUp className="h-6 w-6 text-green-600" /></div>
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Comptabilité</h3>
-            <p className="text-xs text-gray-500 mt-1 mb-2">Entrées, sorties et solde du mois.</p>
-            <button onClick={() => generate("Rapport comptable")} className="text-sm text-indigo-600 font-medium hover:underline">Générer le rapport</button>
+        {period === "Personnalisé" ? (
+          <div className="flex items-center gap-2 text-sm">
+            <input type="date" value={cFrom} onChange={e => setCFrom(e.target.value)} className="border-gray-200 rounded-lg text-sm py-1.5" />
+            <span className="text-gray-400">→</span>
+            <input type="date" value={cTo} onChange={e => setCTo(e.target.value)} className="border-gray-200 rounded-lg text-sm py-1.5" />
           </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-start space-x-4">
-          <div className="bg-amber-50 p-3 rounded-xl"><Users className="h-6 w-6 text-amber-600" /></div>
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Fidélité & Clients</h3>
-            <p className="text-xs text-gray-500 mt-1 mb-2">Acquisition, points et visites.</p>
-            <button onClick={() => generate("Rapport fidélité & clients")} className="text-sm text-indigo-600 font-medium hover:underline">Générer le rapport</button>
-          </div>
-        </div>
+        ) : (
+          <input type="date" value={refDate} onChange={e => setRefDate(e.target.value)} className="border-gray-200 rounded-lg text-sm py-1.5" />
+        )}
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
-        <h3 className="text-lg font-bold text-gray-900 mb-6">Évolution annuelle du Chiffre d'Affaires</h3>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#a3a3a3', fontSize: 12 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#a3a3a3', fontSize: 12 }} />
-              <Tooltip cursor={{ fill: '#f9fafb' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-              <Bar dataKey="ca" name="CA (FCFA)" fill="#d4af37" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      {/* Indicateurs */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        {metric(<Scissors className="h-5 w-5 text-indigo-500" />, "Prestations réalisées", String(s?.prestations || 0), `${s?.tickets || 0} vente(s)`)}
+        {metric(<ShoppingBag className="h-5 w-5 text-green-500" />, "Chiffre d'affaires", `${fmt(s?.net || 0)}`, "FCFA (net prestations)", "text-green-600")}
+        {metric(<Percent className="h-5 w-5 text-red-400" />, "Réductions", `${fmt(s?.discounts || 0)}`, "FCFA accordés", "text-red-500")}
+        {metric(<Gift className="h-5 w-5 text-amber-500" />, "Prestations offertes", String(s?.offeredCount || 0), `${fmt(s?.offeredValue || 0)} FCFA offerts`, "text-amber-600")}
+        {metric(<HandCoins className="h-5 w-5 text-gray-500" />, "Pourboires", `${fmt(s?.tips || 0)}`, "FCFA", "text-gray-700")}
+        {metric(<Wallet className="h-5 w-5 text-indigo-600" />, "Total encaissé", `${fmt(s?.collected || 0)}`, `Résultat net : ${fmt(netResult)} FCFA`, "text-indigo-700")}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <h3 className="text-lg font-bold text-gray-900 mb-6">Ventes sur la période</h3>
+          <div className="h-72">
+            {chartData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-400 text-sm">Aucune vente sur cette période.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#a3a3a3", fontSize: 12 }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#a3a3a3", fontSize: 12 }} />
+                  <Tooltip cursor={{ fill: "#f9fafb" }} contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} />
+                  <Bar dataKey="total" name="CA (FCFA)" fill="#d4af37" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100"><h3 className="text-lg font-bold text-gray-900">Top prestations</h3></div>
+          <div className="p-4 space-y-2">
+            {(s?.topServices || []).length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">Aucune vente.</p>
+            ) : s!.topServices.map((t, i) => (
+              <div key={i} className="flex items-center justify-between text-sm">
+                <span className="text-gray-700 truncate pr-2">{t.name}</span>
+                <span className="text-gray-500 whitespace-nowrap"><b className="text-gray-900">{t.count}×</b> · {fmt(t.amount)} FCFA</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </Layout>

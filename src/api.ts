@@ -421,11 +421,13 @@ export function createApiApp() {
           }
         }
         if (item.offered) {
-          amountFcfa = 0;
           earnedPoints = 0;
           if (serviceName) serviceName += " (Offert)";
         }
-        totalAmount += amountFcfa;
+        // Le prix catalogue reste stocké sur la ligne (même offerte) pour le reporting
+        // « prestations offertes », mais une prestation offerte n'est PAS facturée :
+        // elle n'entre donc pas dans le total encaissé ni dans le chiffre d'affaires.
+        if (!item.offered) totalAmount += amountFcfa;
         totalPoints += earnedPoints;
         if (serviceName) performedNames.push(serviceName);
 
@@ -1033,6 +1035,51 @@ export function createApiApp() {
       unwrap(await supabase.from("services").update({ category_id: null }).eq("category_id", parseInt(req.params.id)));
       unwrap(await supabase.from("categories").delete().eq("id", parseInt(req.params.id)));
       res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // --- Synthèse des ventes (source unique = table visits) ---
+  // Une vente validée écrit dans `visits` ; ce endpoint agrège ces lignes pour alimenter
+  // automatiquement Rapports, Tableau de bord et Comptabilité (aucune ressaisie).
+  app.get("/api/businesses/:id/sales-summary", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      let query = supabase.from("visits").select("*").eq("business_id", businessId);
+      if (typeof req.query.from === "string") query = query.gte("date", req.query.from);
+      if (typeof req.query.to === "string") query = query.lte("date", req.query.to);
+      const rows = toCamelCaseArray(unwrap(await query.order("date", { ascending: true })) || []) as any[];
+
+      let prestations = 0, tickets = 0, gross = 0, discounts = 0, tips = 0, offeredCount = 0, offeredValue = 0;
+      const seriesMap: Record<string, number> = {};
+      const svcMap: Record<string, { count: number; amount: number }> = {};
+      for (const v of rows) {
+        prestations += 1;
+        if (v.isPrimary) tickets += 1;
+        const amt = v.amount || 0;
+        const lineDiscount = v.isPrimary ? (v.discount || 0) : 0; // réduction rattachée au ticket
+        if (v.offered) { offeredCount += 1; offeredValue += amt; }
+        else { gross += amt; }
+        discounts += lineDiscount;
+        tips += v.tip || 0;
+        const day = String(v.date || "").slice(0, 10);
+        if (day) seriesMap[day] = (seriesMap[day] || 0) + (v.offered ? 0 : amt) - lineDiscount;
+        const name = String(v.serviceName || "Autre").replace(" (Offert)", "");
+        if (!svcMap[name]) svcMap[name] = { count: 0, amount: 0 };
+        svcMap[name].count += 1;
+        svcMap[name].amount += (v.offered ? 0 : amt);
+      }
+      const net = Math.max(0, gross - discounts);          // revenu net des prestations
+      const collected = net + tips;                        // total encaissé (avec pourboires)
+      const series = Object.entries(seriesMap)
+        .map(([date, total]) => ({ date, total: Math.max(0, total) }))
+        .sort((a, b) => (a.date < b.date ? -1 : 1));
+      const topServices = Object.entries(svcMap)
+        .map(([name, s]) => ({ name, count: s.count, amount: s.amount }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8);
+      res.json({ prestations, tickets, gross, discounts, tips, offeredCount, offeredValue, net, collected, series, topServices });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

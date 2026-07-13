@@ -148,6 +148,29 @@ export const getVisits = async (customerId: string) => {
   return response.json();
 };
 
+export interface SalesSummary {
+  prestations: number;   // nombre de prestations réalisées (lignes)
+  tickets: number;       // nombre de ventes (tickets)
+  gross: number;         // chiffre d'affaires brut des prestations (FCFA)
+  discounts: number;     // total des réductions
+  tips: number;          // total des pourboires
+  offeredCount: number;  // nombre de prestations offertes
+  offeredValue: number;  // valeur des prestations offertes
+  net: number;           // revenu net (brut - réductions)
+  collected: number;     // total encaissé (net + pourboires)
+  series: { date: string; total: number }[];
+  topServices: { name: string; count: number; amount: number }[];
+}
+
+// Synthèse des ventes sur une période (source unique = ventes enregistrées).
+export const getSalesSummary = async (businessId: number, from?: string, to?: string): Promise<SalesSummary> => {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
+  return fetchApi(`/businesses/${businessId}/sales-summary${qs ? `?${qs}` : ""}`);
+};
+
 export const redeemReward = async (customerId: string, rewardId: number) => {
   return fetchApi(`/customers/${customerId}/redeem`, {
     method: 'POST',

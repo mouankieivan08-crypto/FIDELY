@@ -1,29 +1,32 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, createBusiness, getPrograms, getCustomers, getEmployees, getAppointments, getServices } from "../services/db";
+import { getBusiness, createBusiness, getPrograms, getCustomers, getEmployees, getAppointments, getSalesSummary, SalesSummary } from "../services/db";
 import Layout from "../components/Layout";
 import StatCard from "../components/StatCard";
-import { Users, CreditCard, Award, TrendingUp, Store, Clock, CalendarCheck, Package, Plus } from "lucide-react";
+import { Users, CreditCard, Award, TrendingUp, Store, Clock, CalendarCheck, Package, Plus, ShoppingBag } from "lucide-react";
 import { Link, Navigate } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 
-const DAY_LABELS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-
-function buildSalesData(appointments: any[], services: any[]) {
-  const priceByService = new Map<number, number>(services.map((s: any) => [s.id, s.price]));
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - (6 - i));
-    return d;
-  });
-  return days.map((day) => {
-    const total = appointments
-      .filter((a) => a.status === 'completed' && new Date(a.startTime).toDateString() === day.toDateString())
-      .reduce((sum, a) => sum + (priceByService.get(a.serviceId) || 0), 0);
-    return { name: DAY_LABELS[day.getDay()], total: total / 100 };
-  });
+// Bornes de la période sélectionnée (pour la synthèse des ventes).
+function rangeFor(period: string, ref: string): { from?: string; to?: string } {
+  const d = new Date(ref); d.setHours(0, 0, 0, 0);
+  let start = new Date(d), end = new Date(d);
+  if (period === "Jour") {
+    end.setHours(23, 59, 59, 999);
+  } else if (period === "Semaine") {
+    start.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+  } else if (period === "Mois") {
+    start = new Date(d.getFullYear(), d.getMonth(), 1);
+    end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+  } else {
+    start = new Date(d.getFullYear(), 0, 1);
+    end = new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
+  }
+  return { from: start.toISOString(), to: end.toISOString() };
 }
+
+const fmtCA = (n: number) => Math.round(n ?? 0).toLocaleString("fr-FR");
 
 function buildClientsData(customers: any[]) {
   const weeks = Array.from({ length: 4 }, (_, i) => {
@@ -63,12 +66,26 @@ export default function Dashboard() {
   const [filteredAppointments, setFilteredAppointments] = useState<any[]>([]);
   const [dataSales, setDataSales] = useState<{ name: string; total: number }[]>([]);
   const [dataClients, setDataClients] = useState<{ name: string; nouveaux: number; fideles: number }[]>([]);
+  const [sales, setSales] = useState<SalesSummary | null>(null);
 
   useEffect(() => {
     if (user) {
       fetchData();
     }
   }, [user]);
+
+  // Synthèse des ventes de la période sélectionnée (source unique = ventes en caisse).
+  useEffect(() => {
+    if (!business) return;
+    const { from, to } = rangeFor(period, selectedDate);
+    getSalesSummary(business.id, from, to).then(sum => {
+      setSales(sum);
+      setDataSales((sum.series || []).map(p => ({
+        name: new Date(p.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
+        total: p.total,
+      })));
+    }).catch(() => { setSales(null); setDataSales([]); });
+  }, [business, period, selectedDate]);
 
   useEffect(() => {
     // Filter appointments based on period and selectedDate
@@ -111,11 +128,9 @@ export default function Dashboard() {
         const customers = await getCustomers(rest.id);
         const employees = await getEmployees(rest.id);
         const appointments = await getAppointments(rest.id);
-        const services = await getServices(rest.id);
 
         setEmployeesData(employees);
         setAppointmentsData(appointments);
-        setDataSales(buildSalesData(appointments, services));
         setDataClients(buildClientsData(customers));
 
         setStats({
@@ -238,17 +253,17 @@ export default function Dashboard() {
           <p className="text-sm font-medium text-gray-500 mt-1">Visites enregistrées</p>
         </div>
 
-        {/* Rendez-vous */}
+        {/* Chiffre d'affaires de la période */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-4">
             <div className="h-11 w-11 bg-amber-50 rounded-xl flex items-center justify-center">
-              <CalendarCheck className="h-5 w-5 text-amber-600" />
+              <ShoppingBag className="h-5 w-5 text-amber-600" />
             </div>
             <span className="text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded-full capitalize">{period}</span>
           </div>
-          <p className="text-3xl font-bold text-gray-900 tracking-tight">{filteredAppointments.length}</p>
+          <p className="text-3xl font-bold text-gray-900 tracking-tight">{fmtCA(sales?.collected || 0)} <span className="text-base font-semibold text-gray-400">FCFA</span></p>
           <p className="text-sm font-medium text-gray-500 mt-1">
-            {filteredAppointments.filter(a => a.status === 'scheduled').length} rendez-vous à venir
+            {sales?.prestations || 0} prestation{(sales?.prestations || 0) > 1 ? "s" : ""} · {sales?.tickets || 0} vente{(sales?.tickets || 0) > 1 ? "s" : ""}
           </p>
         </div>
 

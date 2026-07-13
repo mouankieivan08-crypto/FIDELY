@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, getTransactions, createTransaction, deleteTransaction, Transaction } from "../services/db";
-import { Plus, TrendingUp, TrendingDown, Wallet, X, Trash2, Lock } from "lucide-react";
+import { getBusiness, getTransactions, createTransaction, deleteTransaction, getSalesSummary, Transaction, SalesSummary } from "../services/db";
+import { Plus, TrendingUp, TrendingDown, Wallet, X, Trash2, ShoppingBag, HandCoins } from "lucide-react";
 
 const EXPENSE_CATEGORIES = ["Loyer", "Salaires", "Fournitures", "Électricité/Eau", "Marketing", "Imprévu", "Autre"];
 const INCOME_CATEGORIES = ["Vente", "Prestation", "Acompte", "Autre"];
@@ -30,6 +30,7 @@ export default function Accounting() {
   const { user } = useAuth();
   const [business, setBusiness] = useState<any>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [sales, setSales] = useState<SalesSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("Mois");
   const [refDate, setRefDate] = useState(new Date().toISOString().split("T")[0]);
@@ -56,12 +57,20 @@ export default function Accounting() {
   const loadTransactions = async (businessId: number) => {
     try {
       const { from, to } = rangeFor(period, refDate);
-      const data = await getTransactions(businessId, from, to);
+      const [data, summary] = await Promise.all([
+        getTransactions(businessId, from, to),
+        getSalesSummary(businessId, from, to).catch(() => null),
+      ]);
       setTransactions(data);
+      setSales(summary);
     } catch (e) { console.error(e); }
   };
 
-  const credits = transactions.filter(t => t.type === "credit").reduce((s, t) => s + t.amount, 0);
+  // Les ventes validées à la caisse alimentent automatiquement les entrées (net + pourboires),
+  // en plus des opérations manuelles saisies ici.
+  const salesIncome = sales?.collected || 0;
+  const manualCredits = transactions.filter(t => t.type === "credit").reduce((s, t) => s + t.amount, 0);
+  const credits = salesIncome + manualCredits;
   const debits = transactions.filter(t => t.type === "debit").reduce((s, t) => s + t.amount, 0);
   const net = credits - debits;
 
@@ -145,9 +154,30 @@ export default function Accounting() {
         </div>
       </div>
 
+      {sales && (sales.collected > 0 || sales.prestations > 0) && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
+          <div className="flex items-center mb-3">
+            <ShoppingBag className="h-5 w-5 text-green-600 mr-2" />
+            <h2 className="text-lg font-semibold text-gray-900">Ventes de la caisse <span className="text-xs font-normal text-gray-400">(automatique)</span></h2>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div><p className="text-gray-500">Prestations</p><p className="font-bold text-gray-900">{sales.prestations} ({sales.tickets} vente{sales.tickets > 1 ? "s" : ""})</p></div>
+            <div><p className="text-gray-500">CA net prestations</p><p className="font-bold text-green-600">{fmt(sales.net)} FCFA</p></div>
+            <div><p className="text-gray-500 flex items-center"><HandCoins className="h-3.5 w-3.5 mr-1" />Pourboires</p><p className="font-bold text-gray-700">{fmt(sales.tips)} FCFA</p></div>
+            <div><p className="text-gray-500">Encaissé (ventes)</p><p className="font-bold text-indigo-600">{fmt(sales.collected)} FCFA</p></div>
+          </div>
+          {(sales.discounts > 0 || sales.offeredValue > 0) && (
+            <p className="text-xs text-gray-400 mt-3">
+              {sales.discounts > 0 && `Réductions accordées : ${fmt(sales.discounts)} FCFA. `}
+              {sales.offeredValue > 0 && `Prestations offertes : ${sales.offeredCount} (${fmt(sales.offeredValue)} FCFA, non comptés dans le CA).`}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-          <h2 className="text-lg font-semibold text-gray-900">Opérations</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Opérations manuelles</h2>
         </div>
         {transactions.length === 0 ? (
           <div className="p-8 text-center text-gray-500">Aucune opération sur cette période.</div>

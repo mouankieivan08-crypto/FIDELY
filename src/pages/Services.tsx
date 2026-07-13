@@ -137,7 +137,7 @@ export default function Services() {
 
   const handleSell = (serviceId: number) => {
     sessionStorage.setItem("fidely_pending_service", String(serviceId));
-    navigate("/customers");
+    navigate("/vente");
   };
 
   return (
