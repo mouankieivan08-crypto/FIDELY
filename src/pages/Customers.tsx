@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import {
   getBusiness, getCustomers, createCustomer, getServices, getVariants, getEmployees, getVisits,
-  recordVisit, redeemReward, getLoyaltySettings, VisitItem,
+  recordVisit, redeemReward, getLoyaltySettings, lookupCustomerByPhone, VisitItem,
   Customer, ServiceVariant, LoyaltyMode,
 } from "../services/db";
 import Layout from "../components/Layout";
@@ -28,6 +28,8 @@ export default function Customers() {
   const [employeesList, setEmployeesList] = useState<any[]>([]);
   const [businessId, setBusinessId] = useState<number | null>(null);
   const [mode, setMode] = useState<LoyaltyMode>("visits");
+  const [role, setRole] = useState<string>("admin");
+  const isAdmin = role === "admin";
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -36,6 +38,7 @@ export default function Customers() {
   const [quickName, setQuickName] = useState("");
   const [creatingQuick, setCreatingQuick] = useState(false);
   const [quickError, setQuickError] = useState("");
+  const [serverMatch, setServerMatch] = useState<Customer | null>(null); // recherche serveur (staff)
 
   // Detail / cart state
   const [selected, setSelected] = useState<Customer | null>(null);
@@ -62,6 +65,7 @@ export default function Customers() {
       const rest = await getBusiness(user!.id);
       if (rest) {
         setBusinessId(rest.id);
+        if (rest.role) setRole(rest.role);
         const [custData, svcData, empData, loyalty] = await Promise.all([
           getCustomers(rest.id), getServices(rest.id), getEmployees(rest.id), getLoyaltySettings(rest.id).catch(() => ({ mode: "visits" as LoyaltyMode })),
         ]);
@@ -76,11 +80,30 @@ export default function Customers() {
   };
 
   // --- Phone-first quick lookup ---
-  const phoneMatch = useMemo(() => {
+  // Admin : recherche locale instantanée (il a les numéros). Staff : le numéro n'est
+  // jamais chargé côté navigateur, donc on interroge le serveur qui retrouve le client
+  // sans jamais renvoyer son numéro.
+  const localMatch = useMemo(() => {
     const q = phoneQuery.trim();
     if (q.length < 3) return null;
-    return customers.find(c => c.phone.replace(/\s/g, "").includes(q.replace(/\s/g, ""))) || null;
+    return customers.find(c => (c.phone || "").replace(/\s/g, "").includes(q.replace(/\s/g, ""))) || null;
   }, [phoneQuery, customers]);
+
+  useEffect(() => {
+    if (isAdmin || !businessId) { setServerMatch(null); return; }
+    const q = phoneQuery.trim();
+    if (q.length < 3) { setServerMatch(null); return; }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const found = await lookupCustomerByPhone(businessId, q);
+        if (!cancelled) setServerMatch(found);
+      } catch { if (!cancelled) setServerMatch(null); }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [phoneQuery, isAdmin, businessId]);
+
+  const phoneMatch = isAdmin ? localMatch : serverMatch;
 
   const handleQuickCreate = async () => {
     if (!businessId || !phoneQuery.trim() || !quickName.trim()) return;
@@ -111,7 +134,9 @@ export default function Customers() {
       v.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(v);
       const fresh = await fetch(`/api/customers/${c.id}`).then(r => r.json());
-      setSelected(fresh);
+      // L'endpoint public ne renvoie plus le téléphone : on conserve celui de la liste
+      // (présent pour l'admin, absent pour le staff).
+      setSelected({ ...fresh, phone: c.phone });
     } catch (e) { console.error(e); }
   };
 
@@ -160,8 +185,8 @@ export default function Customers() {
       const rewardMsg = res.unlockedRewards?.length ? ` 🎁 ${res.unlockedRewards.length} récompense(s) disponible(s) !` : "";
       setValidateMsg(`Prestation enregistrée ! +${res.earnedPoints} pts · ${fmt(res.amount)} FCFA.${rewardMsg}`);
       const fresh = await fetch(`/api/customers/${selected.id}`).then(r => r.json());
-      setSelected(fresh);
-      setCustomers(prev => prev.map(c => c.id === selected.id ? fresh : c));
+      setSelected({ ...fresh, phone: selected.phone });
+      setCustomers(prev => prev.map(c => c.id === selected.id ? { ...fresh, phone: c.phone } : c));
       const v = await getVisits(selected.id);
       v.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setHistory(v);
@@ -180,8 +205,8 @@ export default function Customers() {
     try {
       await redeemReward(selected.id, rewardId);
       const fresh = await fetch(`/api/customers/${selected.id}`).then(r => r.json());
-      setSelected(fresh);
-      setCustomers(prev => prev.map(c => c.id === selected.id ? fresh : c));
+      setSelected({ ...fresh, phone: selected.phone });
+      setCustomers(prev => prev.map(c => c.id === selected.id ? { ...fresh, phone: c.phone } : c));
       setValidateMsg("Récompense utilisée. Le compteur repart à zéro.");
     } catch (err) {
       setDetailError((err as Error).message || "Échec.");
@@ -272,7 +297,9 @@ export default function Customers() {
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-gray-900">{customer.name}</p>
-                        <p className="text-xs text-gray-500">{customer.phone}</p>
+                        {isAdmin
+                          ? <p className="text-xs text-gray-500">{customer.phone}</p>
+                          : <p className="text-xs text-gray-400 font-mono">{customer.code || "—"}</p>}
                       </div>
                       {customer.rewardStatus === "available" && (
                         <span className="ml-3 px-2 py-0.5 text-[11px] font-medium rounded-full bg-green-100 text-green-800 flex items-center"><Award className="h-3 w-3 mr-1" />Récompense</span>
@@ -302,7 +329,7 @@ export default function Customers() {
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 sticky top-0">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">{selected.name}</h3>
-                <p className="text-xs text-gray-500 font-mono">{selected.code} · {selected.phone}</p>
+                <p className="text-xs text-gray-500 font-mono">{selected.code}{isAdmin && selected.phone ? ` · ${selected.phone}` : ""}</p>
               </div>
               <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
             </div>

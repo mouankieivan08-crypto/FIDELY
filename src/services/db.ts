@@ -111,6 +111,13 @@ export const getCustomers = async (businessId: number) => {
   return fetchApi(`/businesses/${businessId}/customers`);
 };
 
+// Recherche serveur d'un client par téléphone (utilisée par le staff, qui ne reçoit
+// pas les numéros dans la liste). Renvoie le client trouvé (sans son numéro pour le
+// staff) ou null.
+export const lookupCustomerByPhone = async (businessId: number, phone: string): Promise<Customer | null> => {
+  return fetchApi(`/businesses/${businessId}/customers/lookup?phone=${encodeURIComponent(phone)}`);
+};
+
 export const createCustomer = async (businessId: number, data: { name: string; phone: string }) => {
   return fetchApi(`/businesses/${businessId}/customers`, {
     method: 'POST',

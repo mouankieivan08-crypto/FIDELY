@@ -5,7 +5,7 @@ import { Camera, CheckCircle, Clock, Briefcase, Plus, User, Tag, Key, X, Trash2,
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { getBusiness, getEmployees, createEmployee, deleteEmployee, getTimeLogs, clockIn, clockOut, Employee } from "../services/db";
-import { matchFaces, loadFaceModels } from "../lib/face";
+import { matchFaces, loadFaceModels, hasDetectableFace } from "../lib/face";
 
 export default function Employees() {
   const { user } = useAuth();
@@ -29,9 +29,13 @@ export default function Employees() {
     avatarUrl: ''
   });
   const [isCapturingAvatar, setIsCapturingAvatar] = useState(false);
+  const [avatarChecking, setAvatarChecking] = useState(false);
+  const [avatarWarning, setAvatarWarning] = useState("");
   const avatarWebcamRef = useRef<any>(null);
 
   const webcamRef = useRef<any>(null);
+  const [modelsReady, setModelsReady] = useState(false);
+  const [modelsError, setModelsError] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -149,7 +153,11 @@ export default function Employees() {
         </div>
         <div className="flex bg-gray-200 p-1 rounded-lg">
           <button
-            onClick={() => { setActiveTab('pointage'); loadFaceModels().catch(() => {}); }}
+            onClick={() => {
+              setActiveTab('pointage');
+              setModelsError(false);
+              loadFaceModels().then(() => setModelsReady(true)).catch(() => setModelsError(true));
+            }}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'pointage' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:text-gray-900'}`}
           >
             Pointage
@@ -233,6 +241,25 @@ export default function Employees() {
                   {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
               </div>
+
+              {/* État des modèles de reconnaissance faciale */}
+              {modelsError ? (
+                <div className="w-full mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm">
+                  Reconnaissance faciale indisponible (modèles non chargés). Vérifiez la connexion et rechargez la page.
+                </div>
+              ) : !modelsReady ? (
+                <div className="w-full mb-4 bg-indigo-50 border border-indigo-100 text-indigo-700 px-4 py-2 rounded text-sm flex items-center">
+                  <span className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-indigo-500 mr-2" />
+                  Chargement de la reconnaissance faciale...
+                </div>
+              ) : null}
+
+              {/* Avertit si l'employé choisi n'a pas de photo de référence */}
+              {pointageEmployeeId && !employees.find(e => e.id === parseInt(pointageEmployeeId))?.avatarUrl && (
+                <div className="w-full mb-4 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded text-sm">
+                  Aucune photo d'inscription pour cet employé : le visage ne pourra pas être vérifié. Ajoutez sa photo de profil dans l'onglet « Liste ».
+                </div>
+              )}
 
               {pointageError && (
                 <div className="w-full mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm" role="alert">
@@ -468,13 +495,27 @@ export default function Employees() {
                         />
                       </div>
                       <div className="flex space-x-2">
-                        <button type="button" onClick={() => {
+                        <button type="button" disabled={avatarChecking} onClick={async () => {
                           const src = avatarWebcamRef.current?.getScreenshot();
-                          if (src) setFormData({...formData, avatarUrl: src});
+                          if (!src) return;
+                          setAvatarChecking(true);
+                          setAvatarWarning("");
+                          // On vérifie qu'un visage est bien exploitable AVANT d'enregistrer
+                          // la photo de référence, sinon le pointage échouerait plus tard.
+                          const ok = await hasDetectableFace(src);
+                          setAvatarChecking(false);
+                          if (!ok) {
+                            setAvatarWarning("Aucun visage détecté sur cette photo. Reprenez-la bien de face, dans un endroit éclairé.");
+                            return;
+                          }
+                          setFormData({ ...formData, avatarUrl: src });
                           setIsCapturingAvatar(false);
-                        }} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm">Capturer</button>
-                        <button type="button" onClick={() => setIsCapturingAvatar(false)} className="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm">Annuler</button>
+                        }} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm disabled:opacity-50">
+                          {avatarChecking ? "Analyse..." : "Capturer"}
+                        </button>
+                        <button type="button" onClick={() => { setIsCapturingAvatar(false); setAvatarWarning(""); }} className="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm">Annuler</button>
                       </div>
+                      {avatarWarning && <p className="text-xs text-red-600 mt-2 text-center max-w-[220px]">{avatarWarning}</p>}
                     </div>
                   ) : (
                     <button type="button" onClick={() => setIsCapturingAvatar(true)} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:bg-gray-50 transition-colors flex flex-col items-center justify-center">

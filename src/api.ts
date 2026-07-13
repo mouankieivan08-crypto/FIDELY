@@ -194,6 +194,7 @@ export function createApiApp() {
   app.get("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const businessId = parseInt(req.params.id);
+      const isAdmin = (req as any).role === "admin";
       const rows = unwrap(await supabase.from("customers").select("*").eq("business_id", businessId));
       // Attach each customer's last visit date so the UI can flag inactive clients.
       const visitRows = unwrap(await supabase.from("visits").select("customer_id, date").eq("business_id", businessId));
@@ -201,8 +202,35 @@ export function createApiApp() {
       for (const v of visitRows || []) {
         if (!lastVisitByCustomer[v.customer_id] || v.date > lastVisitByCustomer[v.customer_id]) lastVisitByCustomer[v.customer_id] = v.date;
       }
-      const enriched = (rows || []).map((r) => ({ ...toCamelCase(r), lastVisitDate: lastVisitByCustomer[r.id] || null }));
+      // Le numéro de téléphone est une donnée réservée à l'administrateur : le staff
+      // ne doit jamais le recevoir (on le retire de la réponse, pas seulement de l'affichage).
+      const enriched = (rows || []).map((r) => {
+        const c: any = { ...toCamelCase(r), lastVisitDate: lastVisitByCustomer[r.id] || null };
+        if (!isAdmin) c.phone = null;
+        return c;
+      });
       res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Recherche d'un client par téléphone (caisse). Accessible au staff pour retrouver
+  // un client via le numéro qu'il communique, MAIS la réponse ne renvoie jamais le
+  // numéro au staff — il ne peut donc pas parcourir/collecter les contacts.
+  app.get("/api/businesses/:id/customers/lookup", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      const isAdmin = (req as any).role === "admin";
+      const phone = String(req.query.phone || "").replace(/\s/g, "").trim();
+      if (phone.length < 3) return res.json(null);
+      const rows = unwrap(await supabase.from("customers").select("*").eq("business_id", businessId));
+      const match: any = (rows || [])
+        .map((r) => toCamelCase<any>(r))
+        .find((c: any) => (c.phone || "").replace(/\s/g, "").includes(phone));
+      if (!match) return res.json(null);
+      if (!isAdmin) match.phone = null;
+      res.json(match);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -265,11 +293,13 @@ export function createApiApp() {
     try {
       const rows = unwrap(await supabase.from("customers").select("*").eq("id", req.params.id).limit(1));
       if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
-      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number }>(rows[0]);
+      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number; phone?: string }>(rows[0]);
       const mode = await getLoyaltyMode(customer.businessId);
       const progress = progressFor(mode, customer);
       const unlockedRewards = await getUnlockedRewards(customer.businessId, progress);
       const tier = await getCurrentTier(customer.businessId, req.params.id, mode, progress);
+      // Endpoint public (page carte partageable) : ne jamais exposer le téléphone.
+      delete (customer as any).phone;
       res.json({ ...customer, loyaltyMode: mode, progress, unlockedRewards, tier: tier?.name || null });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
