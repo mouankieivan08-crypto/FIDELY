@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import { useAuth } from "../contexts/AuthContext";
-import { getBusiness, getTransactions, createTransaction, deleteTransaction, getSalesSummary, Transaction, SalesSummary } from "../services/db";
-import { Plus, TrendingUp, TrendingDown, Wallet, X, Trash2, ShoppingBag, HandCoins } from "lucide-react";
+import { getBusiness, getTransactions, createTransaction, updateTransaction, deleteTransaction, getSalesSummary, Transaction, SalesSummary } from "../services/db";
+import { Plus, TrendingUp, TrendingDown, Wallet, X, Trash2, Pencil, ShoppingBag, HandCoins } from "lucide-react";
 
 const EXPENSE_CATEGORIES = ["Loyer", "Salaires", "Fournitures", "Électricité/Eau", "Marketing", "Imprévu", "Autre"];
 const INCOME_CATEGORIES = ["Vente", "Prestation", "Acompte", "Autre"];
@@ -35,7 +35,9 @@ export default function Accounting() {
   const [period, setPeriod] = useState("Mois");
   const [refDate, setRefDate] = useState(new Date().toISOString().split("T")[0]);
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [formError, setFormError] = useState("");
+  const isAdmin = business?.role === "admin";
   const [form, setForm] = useState({
     type: "debit" as "credit" | "debit",
     amount: "",
@@ -66,30 +68,52 @@ export default function Accounting() {
     } catch (e) { console.error(e); }
   };
 
-  // Les ventes validées à la caisse alimentent automatiquement les entrées (net + pourboires),
-  // en plus des opérations manuelles saisies ici.
-  const salesIncome = sales?.collected || 0;
-  const manualCredits = transactions.filter(t => t.type === "credit").reduce((s, t) => s + t.amount, 0);
-  const credits = salesIncome + manualCredits;
+  // La table transactions est la source unique du solde : les ventes de caisse y créent
+  // automatiquement une écriture crédit (« Vente »), en plus des opérations manuelles.
+  // On ne ré-additionne donc PAS le résumé des ventes (sinon double comptage).
+  const credits = transactions.filter(t => t.type === "credit").reduce((s, t) => s + t.amount, 0);
   const debits = transactions.filter(t => t.type === "debit").reduce((s, t) => s + t.amount, 0);
   const net = credits - debits;
 
   const [saving, setSaving] = useState(false);
 
-  const handleAdd = async (e: React.FormEvent) => {
+  const openNew = () => {
+    setEditingId(null);
+    setForm({ type: "debit", amount: "", category: "Imprévu", description: "", date: new Date().toISOString().split("T")[0] });
+    setFormError("");
+    setShowModal(true);
+  };
+
+  const openEdit = (t: Transaction) => {
+    setEditingId(t.id);
+    setForm({
+      type: t.type,
+      amount: String(t.amount),
+      category: t.category || (t.type === "credit" ? INCOME_CATEGORIES[0] : "Imprévu"),
+      description: t.description || "",
+      date: new Date(t.date).toISOString().split("T")[0],
+    });
+    setFormError("");
+    setShowModal(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return;
     setSaving(true);
     setFormError("");
     try {
-      await createTransaction(business.id, {
+      const payload = {
         type: form.type,
         amount: parseInt(form.amount),
         category: form.category,
         description: form.description,
         date: new Date(form.date).toISOString(),
-      } as any);
+      };
+      if (editingId) await updateTransaction(editingId, payload as any);
+      else await createTransaction(business.id, payload as any);
       setShowModal(false);
+      setEditingId(null);
       setForm({ type: "debit", amount: "", category: "Imprévu", description: "", date: new Date().toISOString().split("T")[0] });
       loadTransactions(business.id);
     } catch (err) {
@@ -98,6 +122,7 @@ export default function Accounting() {
   };
 
   const handleDelete = async (id: number) => {
+    if (!confirm("Supprimer cette opération ?")) return;
     try { await deleteTransaction(id); loadTransactions(business.id); } catch (e) { console.error(e); }
   };
 
@@ -123,7 +148,7 @@ export default function Accounting() {
                 className="ml-2 px-2 py-1 text-xs border border-gray-200 rounded text-gray-500" />
             )}
           </div>
-          <button onClick={() => { setFormError(""); setShowModal(true); }}
+          <button onClick={openNew}
             className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium">
             <Plus className="h-4 w-4 mr-2" /> Ajouter une opération
           </button>
@@ -177,7 +202,8 @@ export default function Accounting() {
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-          <h2 className="text-lg font-semibold text-gray-900">Opérations manuelles</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Écritures comptables</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Ventes de caisse (automatiques) + opérations saisies à la main</p>
         </div>
         {transactions.length === 0 ? (
           <div className="p-8 text-center text-gray-500">Aucune opération sur cette période.</div>
@@ -199,13 +225,15 @@ export default function Accounting() {
                     <td className="px-6 py-4 text-sm text-gray-600">{new Date(t.date).toLocaleDateString("fr-FR")}</td>
                     <td className="px-6 py-4">
                       <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">{t.category || "—"}</span>
+                      {t.category === "Vente" && <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-600">auto</span>}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">{t.description || "—"}</td>
                     <td className={`px-6 py-4 text-right text-sm font-bold ${t.type === "credit" ? "text-green-600" : "text-red-600"}`}>
                       {t.type === "credit" ? "+" : "−"}{fmt(t.amount)} FCFA
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <button onClick={() => handleDelete(t.id)} className="text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+                    <td className="px-6 py-4 text-right whitespace-nowrap">
+                      <button onClick={() => openEdit(t)} title="Modifier" className="text-gray-400 hover:text-indigo-600 mr-1"><Pencil className="h-4 w-4" /></button>
+                      {isAdmin && <button onClick={() => handleDelete(t.id)} title="Supprimer" className="text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>}
                     </td>
                   </tr>
                 ))}
@@ -219,10 +247,10 @@ export default function Accounting() {
         <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="text-lg font-bold text-gray-900">Nouvelle opération</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
+              <h3 className="text-lg font-bold text-gray-900">{editingId ? "Modifier l'opération" : "Nouvelle opération"}</h3>
+              <button onClick={() => { setShowModal(false); setEditingId(null); }} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
             </div>
-            <form onSubmit={handleAdd} className="p-6 space-y-4">
+            <form onSubmit={handleSave} className="p-6 space-y-4">
               {formError && <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded text-sm">{formError}</div>}
               <div className="grid grid-cols-2 gap-3">
                 <button type="button" onClick={() => setForm({ ...form, type: "credit", category: INCOME_CATEGORIES[0] })}
@@ -252,7 +280,7 @@ export default function Accounting() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                 <input type="date" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full border-gray-300 rounded-lg shadow-sm" />
               </div>
-              <button type="submit" disabled={saving} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50">{saving ? "Enregistrement..." : "Enregistrer"}</button>
+              <button type="submit" disabled={saving} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50">{saving ? "Enregistrement..." : editingId ? "Enregistrer les modifications" : "Enregistrer"}</button>
             </form>
           </div>
         </div>

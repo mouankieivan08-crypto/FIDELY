@@ -1189,6 +1189,31 @@ export function createApiApp() {
     }
   });
 
+  // Modifier une opération : accessible au staff (correction d'une saisie).
+  const updateTransactionSchema = createTransactionSchema.partial();
+  app.put("/api/transactions/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("transactions").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const txn = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, txn.businessId);
+      if (!access) return; // response already sent
+      const parsed = updateTransactionSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const patch: any = {};
+      if (parsed.data.type !== undefined) patch.type = parsed.data.type;
+      if (parsed.data.amount !== undefined) patch.amount = parsed.data.amount;
+      if (parsed.data.category !== undefined) patch.category = parsed.data.category;
+      if (parsed.data.description !== undefined) patch.description = parsed.data.description;
+      if (parsed.data.date !== undefined) patch.date = parsed.data.date;
+      const result = unwrap(await supabase.from("transactions").update(patch).eq("id", parseInt(req.params.id)).select().single());
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Supprimer une opération : réservé à l'administrateur (le staff ne supprime pas les écritures).
   app.delete("/api/transactions/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
       const rows = unwrap(await supabase.from("transactions").select("*").eq("id", parseInt(req.params.id)).limit(1));
@@ -1196,6 +1221,7 @@ export function createApiApp() {
       const txn = toCamelCase<{ businessId: number }>(rows[0]);
       const access = await loadAccess(req, res, txn.businessId);
       if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Suppression réservée à l'administrateur." });
       unwrap(await supabase.from("transactions").delete().eq("id", parseInt(req.params.id)));
       res.json({ success: true });
     } catch (error) {

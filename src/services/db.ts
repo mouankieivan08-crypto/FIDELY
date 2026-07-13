@@ -331,6 +331,14 @@ export const createTransaction = async (businessId: number, data: Omit<Transacti
   });
 };
 
+export const updateTransaction = async (transactionId: number, data: Partial<Omit<Transaction, "id" | "businessId" | "createdAt">>) => {
+  return fetchApi(`/transactions/${transactionId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+};
+
 export const deleteTransaction = async (transactionId: number) => {
   return fetchApi(`/transactions/${transactionId}`, { method: 'DELETE' });
 };
