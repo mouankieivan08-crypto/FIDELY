@@ -58,7 +58,9 @@ export default function CustomerView() {
         </div>
 
         <div className="p-8 flex flex-col items-center">
-          <QRCodeDisplay value={customer.id} size={220} />
+          {/* Le QR encode le lien complet de la carte : n'importe quel appareil photo
+              (pas seulement le scanner du salon) peut l'ouvrir après partage WhatsApp/Facebook. */}
+          <QRCodeDisplay value={`${window.location.origin}/card/${customer.id}`} size={220} />
           {customer.cardNumber && (
             <p className="mt-3 text-sm font-mono font-bold text-gray-700 tracking-widest">N° {customer.cardNumber}</p>
           )}

@@ -24,13 +24,23 @@ export default function Scanner() {
     }
   }, [user]);
 
+  // Le QR peut contenir soit l'ID brut (anciennes cartes imprimées), soit le lien
+  // complet de la carte (https://.../card/CARD-XXXX) — on extrait l'ID dans les deux cas.
+  const extractCustomerId = (text: string) => {
+    const marker = "/card/";
+    const idx = text.indexOf(marker);
+    if (idx === -1) return text.trim();
+    return text.slice(idx + marker.length).split(/[?#]/)[0].trim();
+  };
+
   const handleScan = async (decodedText: string) => {
-    if (decodedText === lastScannedId || scanned) return;
-    setLastScannedId(decodedText);
+    const customerId = extractCustomerId(decodedText);
+    if (customerId === lastScannedId || scanned) return;
+    setLastScannedId(customerId);
     setError("");
     setSuccess(null);
     try {
-      const customer = await getCustomer(decodedText);
+      const customer = await getCustomer(customerId);
       if (!customer) { setError("Client introuvable."); setTimeout(() => setLastScannedId(null), 2000); return; }
       setScanned(customer);
       setChosenService("");

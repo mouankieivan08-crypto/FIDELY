@@ -40,8 +40,8 @@ export default function Customers() {
   // Detail / cart state
   const [selected, setSelected] = useState<Customer | null>(null);
   const [history, setHistory] = useState<any[]>([]);
-  const emptyCartRow = () => ({ serviceId: "", variantId: "", employeeId: "", offered: false });
-  const [cart, setCart] = useState<{ serviceId: string; variantId: string; employeeId: string; offered: boolean }[]>([emptyCartRow()]);
+  const emptyCartRow = () => ({ serviceId: "", variantId: "", employeeId: "", offered: false, qty: 1 });
+  const [cart, setCart] = useState<{ serviceId: string; variantId: string; employeeId: string; offered: boolean; qty: number }[]>([emptyCartRow()]);
   const [tip, setTip] = useState("");
   const [discount, setDiscount] = useState("");
   const [saving, setSaving] = useState(false);
@@ -117,7 +117,7 @@ export default function Customers() {
 
   const addCartRow = () => setCart([...cart, emptyCartRow()]);
   const removeCartRow = (i: number) => setCart(cart.filter((_, idx) => idx !== i));
-  const updateCartRow = (i: number, patch: Partial<{ serviceId: string; variantId: string; employeeId: string; offered: boolean }>) => {
+  const updateCartRow = (i: number, patch: Partial<{ serviceId: string; variantId: string; employeeId: string; offered: boolean; qty: number }>) => {
     setCart(cart.map((row, idx) => idx === i ? { ...row, ...patch } : row));
   };
 
@@ -126,9 +126,10 @@ export default function Customers() {
     .map(r => {
       const svc = services.find((s: any) => s.id === parseInt(r.serviceId));
       const variant = r.variantId ? (variantsByService[parseInt(r.serviceId)] || []).find(v => v.id === parseInt(r.variantId)) : null;
-      const price = r.offered ? 0 : (variant ? variant.price : svc?.price || 0);
+      const unitPrice = r.offered ? 0 : (variant ? variant.price : svc?.price || 0);
       const label = variant ? `${svc?.name} — ${variant.name}` : svc?.name;
-      return { ...r, label, price };
+      const qty = Math.max(1, r.qty || 1);
+      return { ...r, qty, label, unitPrice, price: unitPrice * qty };
     });
   const cartSubtotal = cartLines.reduce((s, l) => s + l.price, 0);
   const tipCents = (parseInt(tip) || 0) * 100;
@@ -144,12 +145,16 @@ export default function Customers() {
     setDetailError("");
     setValidateMsg("");
     try {
-      const items: VisitItem[] = cart.filter(r => r.serviceId).map(r => ({
-        serviceId: r.variantId ? undefined : parseInt(r.serviceId),
-        variantId: r.variantId ? parseInt(r.variantId) : undefined,
-        employeeId: r.employeeId ? parseInt(r.employeeId) : undefined,
-        offered: r.offered,
-      }));
+      // Une quantité x2/x3 se traduit simplement par plusieurs lignes identiques
+      // (comme "burger x2" au restaurant) — aucun changement côté serveur nécessaire.
+      const items: VisitItem[] = cart.filter(r => r.serviceId).flatMap(r =>
+        Array.from({ length: Math.max(1, r.qty || 1) }, () => ({
+          serviceId: r.variantId ? undefined : parseInt(r.serviceId),
+          variantId: r.variantId ? parseInt(r.variantId) : undefined,
+          employeeId: r.employeeId ? parseInt(r.employeeId) : undefined,
+          offered: r.offered,
+        }))
+      );
       // tip/discount sont exprimés en FCFA côté serveur (comme le montant des prestations)
       const res = await recordVisit(selected.id, items, { tip: parseInt(tip) || 0, discount: parseInt(discount) || 0 });
       const rewardMsg = res.unlockedRewards?.length ? ` 🎁 ${res.unlockedRewards.length} récompense(s) disponible(s) !` : "";
@@ -357,6 +362,9 @@ export default function Customers() {
                               <option value="">Employé (optionnel)</option>
                               {employeesList.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
                             </select>
+                            <select value={row.qty} onChange={e => updateCartRow(i, { qty: parseInt(e.target.value) })} title="Nombre de personnes / quantité" className="text-sm border-gray-200 rounded-lg w-16">
+                              {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>× {n}</option>)}
+                            </select>
                             <label className="flex items-center text-xs text-gray-600 px-2 whitespace-nowrap" title="Offrir cette prestation">
                               <input type="checkbox" checked={row.offered} onChange={e => updateCartRow(i, { offered: e.target.checked })} className="mr-1 rounded" />
                               Offert
@@ -367,6 +375,7 @@ export default function Customers() {
                       })}
                     </div>
                     <button onClick={addCartRow} className="mt-2 text-sm text-indigo-600 font-medium hover:underline flex items-center"><Plus className="h-3.5 w-3.5 mr-1" />Ajouter une prestation</button>
+                    <p className="text-[11px] text-gray-400 mt-1">Astuce : utilisez × 2, × 3... si plusieurs personnes prennent la même prestation ensemble.</p>
 
                     {cartLines.length > 0 && (
                       <>
@@ -381,7 +390,7 @@ export default function Customers() {
                           </div>
                         </div>
                         <div className="mt-3 pt-3 border-t border-indigo-100 flex justify-between items-center text-sm">
-                          <span className="text-gray-600">Total ({cartLines.length} prestation{cartLines.length > 1 ? "s" : ""})</span>
+                          <span className="text-gray-600">Total ({cartLines.reduce((s, l) => s + l.qty, 0)} prestation{cartLines.reduce((s, l) => s + l.qty, 0) > 1 ? "s" : ""})</span>
                           <span className="font-bold text-gray-900">{fmt(cartTotal / 100)} FCFA</span>
                         </div>
                       </>
