@@ -73,6 +73,13 @@ export default function Sale() {
     return v ? parseInt(v) : null;
   }, []);
 
+  // Client déjà identifié via le Scanner QR (évite de le rechercher par nom/téléphone).
+  const pendingCustomerId = useMemo(() => {
+    const v = sessionStorage.getItem("fidely_pending_customer_id");
+    sessionStorage.removeItem("fidely_pending_customer_id");
+    return v;
+  }, []);
+
   useEffect(() => { if (user) fetchData(); }, [user]);
 
   const fetchData = async () => {
@@ -93,6 +100,10 @@ export default function Sale() {
         if (pendingServiceId) {
           const s = svc.find((x: any) => x.id === pendingServiceId);
           if (s) addToCart(s);
+        }
+        if (pendingCustomerId) {
+          const c = custs.find((x: Customer) => x.id === pendingCustomerId);
+          if (c) selectClient(c);
         }
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }

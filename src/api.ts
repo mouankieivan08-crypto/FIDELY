@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { requireAuth, AuthRequest } from "./middleware/auth.js";
 import { supabase } from "./lib/supabase-server.js";
 import { toSnakeCase, toCamelCase, toCamelCaseArray } from "./lib/caseConvert.js";
+import { notifyOnce } from "./lib/whatsapp.js";
 
 function unwrap<T>({ data, error }: { data: T | null; error: { message: string } | null }): T {
   if (error) throw new Error(error.message);
@@ -291,6 +292,13 @@ export function createApiApp() {
           .select()
           .single()
       );
+      if (process.env.WHATSAPP_WELCOME_ENABLED === "true") {
+        await notifyOnce({
+          businessId, customerId: id, phone: parsed.data.phone,
+          type: "welcome_new_client", referenceId: id,
+          params: [parsed.data.name, code],
+        });
+      }
       res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
@@ -412,7 +420,7 @@ export function createApiApp() {
 
       const custs = unwrap(await supabase.from("customers").select("*").eq("id", customerId).limit(1));
       if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });
-      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number; name: string }>(custs[0]);
+      const customer = toCamelCase<{ businessId: number; visits: number; points: number; stamps: number; name: string; phone: string }>(custs[0]);
 
       const business = await loadOwnedBusiness(req, res, customer.businessId);
       if (!business) return; // response already sent
@@ -508,7 +516,9 @@ export function createApiApp() {
       );
 
       // Comptabilité automatique : chaque vente crée une écriture crédit (source unique).
-      // Le pourboire n'est PAS compté comme chiffre d'affaires ; les prestations offertes non plus.
+      // Le pourboire est enregistré séparément (catégorie "Pourboire") pour que le total
+      // encaissé affiché dans les Rapports (net + pourboires) corresponde exactement au
+      // solde de la Comptabilité. Les prestations offertes ne génèrent aucune écriture.
       // Best-effort : si l'écriture échoue, la vente reste enregistrée (on ne casse pas la caisse).
       if (netPrestations > 0) {
         try {
@@ -524,6 +534,21 @@ export function createApiApp() {
           })));
         } catch (e) {
           console.error("Compta auto (vente) échouée:", (e as Error).message);
+        }
+      }
+      if (tip > 0) {
+        try {
+          unwrap(await supabase.from("transactions").insert(toSnakeCase({
+            businessId: customer.businessId,
+            type: "credit",
+            amount: tip,
+            category: "Pourboire",
+            description: `Pourboire — ${customer.name}`,
+            date: new Date(),
+            createdBy: req.user!.uid,
+          })));
+        } catch (e) {
+          console.error("Compta auto (pourboire) échouée:", (e as Error).message);
         }
       }
 
@@ -1317,6 +1342,51 @@ export function createApiApp() {
       // Supprimer aussi le compte de connexion pour qu'il ne puisse plus se connecter
       if (member.uid) { try { await supabase.auth.admin.deleteUser(member.uid); } catch {} }
       res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // --- Cron : relance WhatsApp des clients inactifs (Vercel Cron, pas de session utilisateur) ---
+  const INACTIVE_DAYS = 60; // même règle que le badge "Inactif" côté UI (Customers.tsx)
+  const REMINDER_COOLDOWN_DAYS = 30; // ne pas relancer plus d'une fois par mois
+
+  app.get("/api/cron/inactive-reminders", async (req, res) => {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (process.env.WHATSAPP_INACTIVE_REMINDER_ENABLED !== "true") return res.json({ skipped: true });
+    try {
+      const businesses = unwrap(await supabase.from("businesses").select("id"));
+      let processed = 0;
+      for (const biz of businesses || []) {
+        const businessId = biz.id;
+        const customers = unwrap(await supabase.from("customers").select("id, name, phone, created_at").eq("business_id", businessId)) || [];
+        const visits = unwrap(await supabase.from("visits").select("customer_id, date").eq("business_id", businessId)) || [];
+        const lastVisitByCustomer: Record<string, string> = {};
+        for (const v of visits) {
+          if (!lastVisitByCustomer[v.customer_id] || v.date > lastVisitByCustomer[v.customer_id]) lastVisitByCustomer[v.customer_id] = v.date;
+        }
+        const cutoff = Date.now() - INACTIVE_DAYS * 86400000;
+        const recentReminders = unwrap(
+          await supabase.from("whatsapp_notifications").select("customer_id")
+            .eq("business_id", businessId).eq("type", "inactive_reminder")
+            .gte("created_at", new Date(Date.now() - REMINDER_COOLDOWN_DAYS * 86400000).toISOString())
+        ) || [];
+        const recentlyReminded = new Set(recentReminders.map((r: any) => r.customer_id));
+        for (const c of customers) {
+          if (!c.phone || recentlyReminded.has(c.id)) continue;
+          const ref = lastVisitByCustomer[c.id] || c.created_at;
+          if (!ref || new Date(ref).getTime() > cutoff) continue;
+          await notifyOnce({
+            businessId, customerId: c.id, phone: c.phone,
+            type: "inactive_reminder", referenceId: `${c.id}:${new Date().toISOString().slice(0, 10)}`,
+            params: [c.name],
+          });
+          processed++;
+        }
+      }
+      res.json({ processed });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

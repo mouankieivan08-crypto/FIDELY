@@ -5,7 +5,8 @@ import { getBusiness, getTransactions, createTransaction, updateTransaction, del
 import { Plus, TrendingUp, TrendingDown, Wallet, X, Trash2, Pencil, ShoppingBag, HandCoins } from "lucide-react";
 
 const EXPENSE_CATEGORIES = ["Loyer", "Salaires", "Fournitures", "Électricité/Eau", "Marketing", "Imprévu", "Autre"];
-const INCOME_CATEGORIES = ["Vente", "Prestation", "Acompte", "Autre"];
+const INCOME_CATEGORIES = ["Vente", "Pourboire", "Prestation", "Acompte", "Autre"];
+const AUTO_CATEGORIES = ["Vente", "Pourboire"]; // générées automatiquement par la caisse
 
 function rangeFor(period: string, ref: string): { from?: string; to?: string } {
   if (period === "Tout") return {};
@@ -225,7 +226,7 @@ export default function Accounting() {
                     <td className="px-6 py-4 text-sm text-gray-600">{new Date(t.date).toLocaleDateString("fr-FR")}</td>
                     <td className="px-6 py-4">
                       <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">{t.category || "—"}</span>
-                      {t.category === "Vente" && <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-600">auto</span>}
+                      {AUTO_CATEGORIES.includes(t.category || "") && <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-600">auto</span>}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">{t.description || "—"}</td>
                     <td className={`px-6 py-4 text-right text-sm font-bold ${t.type === "credit" ? "text-green-600" : "text-red-600"}`}>
