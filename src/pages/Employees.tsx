@@ -71,10 +71,14 @@ export default function Employees() {
 
   const refreshTimeLogs = () => { if (businessId) getTimeLogs(businessId).then(setTimeLogs).catch(() => {}); };
 
+  // Un pointage peut n'avoir que le départ (arrivée oubliée/non pointée) : on trie et
+  // filtre alors sur l'heure de départ, faute de mieux.
+  const logTime = (l: any) => new Date(l.clockInTime || l.clockOutTime || 0).getTime();
+
   // Employés classés du plus assidu (le plus de pointages) au moins assidu, avec leurs 2 derniers passages.
   const rankedEmployees = employees
     .map(emp => {
-      const logs = timeLogs.filter(l => l.employeeId === emp.id).sort((a, b) => new Date(b.clockInTime).getTime() - new Date(a.clockInTime).getTime());
+      const logs = timeLogs.filter(l => l.employeeId === emp.id).sort((a, b) => logTime(b) - logTime(a));
       return { ...emp, passageCount: logs.length, lastPassages: logs.slice(0, 2) };
     })
     .sort((a, b) => b.passageCount - a.passageCount);
@@ -101,12 +105,12 @@ export default function Employees() {
   })();
 
   const periodLogs = timeLogs.filter(l => {
-    const t = l.clockInTime ? new Date(l.clockInTime).getTime() : 0;
+    const t = logTime(l);
     return t >= histRange.from && t <= histRange.to;
   });
   const visibleLogs = periodLogs
     .filter(l => !historyFilter || String(l.employeeId) === historyFilter)
-    .sort((a, b) => new Date(b.clockInTime).getTime() - new Date(a.clockInTime).getTime());
+    .sort((a, b) => logTime(b) - logTime(a));
   // Bilan classé par employé sur la période (le plus assidu en premier).
   const bilan = employees
     .map(e => ({ id: e.id, name: e.name, count: periodLogs.filter(l => l.employeeId === e.id).length }))
@@ -477,7 +481,7 @@ export default function Employees() {
                           <p className="font-semibold text-gray-900">{emp.passageCount} pointage{emp.passageCount > 1 ? "s" : ""}</p>
                           {emp.lastPassages.length > 0 && (
                             <p className="text-xs text-gray-400">
-                              Derniers : {emp.lastPassages.map((l: any) => new Date(l.clockInTime).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })).join(", ")}
+                              Derniers : {emp.lastPassages.map((l: any) => new Date(logTime(l)).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })).join(", ")}
                             </p>
                           )}
                         </td>

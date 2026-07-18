@@ -1021,16 +1021,17 @@ export function createApiApp() {
       const business = await loadOwnedBusiness(req, res, employee.businessId);
       if (!business) return; // response already sent
 
+      // Pointage libre : arrivée et départ sont deux boutons indépendants, dans
+      // n'importe quel ordre (un employé peut avoir oublié de pointer son arrivée).
+      // S'il existe une arrivée ouverte, on la clôture normalement. Sinon, on
+      // enregistre quand même le départ seul (arrivée inconnue).
       const openLog = unwrap(
         await supabase.from("time_logs").select("id").eq("employee_id", empId).is("clock_out_time", null)
+          .order("clock_in_time", { ascending: false }).limit(1)
       );
-      if (!openLog || openLog.length === 0) {
-        return res.status(400).json({ error: "Employee is not clocked in." });
-      }
-
-      const result = unwrap(
-        await supabase.from("time_logs").update({ clock_out_time: new Date().toISOString() }).eq("id", openLog[0].id).select().single()
-      );
+      const result = openLog && openLog.length > 0
+        ? unwrap(await supabase.from("time_logs").update({ clock_out_time: new Date().toISOString() }).eq("id", openLog[0].id).select().single())
+        : unwrap(await supabase.from("time_logs").insert({ employee_id: empId, clock_in_time: null, clock_out_time: new Date().toISOString() }).select().single());
       res.json(toCamelCase(result));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
