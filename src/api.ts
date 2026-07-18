@@ -1577,17 +1577,21 @@ export function createApiApp() {
         .sort((a: any, b: any) => b.days - a.days)
         .map(({ id, name, code, days }: any) => ({ id, name, code, days }));
 
-      // Stock bas (réservé admin)
+      // Stock bas (réservé admin). Isolé dans son try : si la table products n'existe
+      // pas encore (migration-007 non exécutée), la cloche fonctionne quand même pour
+      // les clients inactifs.
       let lowStock: any[] = [];
       if (isAdmin) {
-        const products = unwrap(await supabase.from("products").select("*").eq("business_id", businessId)) || [];
-        lowStock = (products as any[])
-          .map((p) => toCamelCase<any>(p))
-          .filter((p: any) => (p.lowStockUses || 0) > 0 && (p.stockUses || 0) <= (p.lowStockUses || 0))
-          .map((p: any) => ({
-            id: p.id, name: p.name, unitLabel: p.unitLabel, usesPerUnit: p.usesPerUnit,
-            stockUses: p.stockUses, unitsLeft: Math.floor((p.stockUses || 0) / (p.usesPerUnit || 1)),
-          }));
+        try {
+          const products = unwrap(await supabase.from("products").select("*").eq("business_id", businessId)) || [];
+          lowStock = (products as any[])
+            .map((p) => toCamelCase<any>(p))
+            .filter((p: any) => (p.lowStockUses || 0) > 0 && (p.stockUses || 0) <= (p.lowStockUses || 0))
+            .map((p: any) => ({
+              id: p.id, name: p.name, unitLabel: p.unitLabel, usesPerUnit: p.usesPerUnit,
+              stockUses: p.stockUses, unitsLeft: Math.floor((p.stockUses || 0) / (p.usesPerUnit || 1)),
+            }));
+        } catch { lowStock = []; }
       }
 
       res.json({ inactiveClients, lowStock });

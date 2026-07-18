@@ -38,7 +38,7 @@ export default function Inventory() {
         if (rest.role) setRole(rest.role);
         if (rest.role !== "admin") { setLoading(false); return; }
         const [prods, svcs, lnks] = await Promise.all([
-          getProducts(rest.id), getServices(rest.id), getServiceProducts(rest.id).catch(() => []),
+          getProducts(rest.id).catch(() => []), getServices(rest.id).catch(() => []), getServiceProducts(rest.id).catch(() => []),
         ]);
         setProducts(prods);
         setServices(svcs);
