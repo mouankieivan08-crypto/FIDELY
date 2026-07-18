@@ -3,13 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import {
   getBusiness, getCustomers, createCustomer, lookupCustomerByPhone,
-  getServices, getCategories, getVariants, getEmployees, recordVisit,
+  getServices, getCategories, getVariants, getEmployees, recordVisit, createService,
   Customer, ServiceVariant, VisitItem,
 } from "../services/db";
 import Layout from "../components/Layout";
 import {
   Search, Plus, Minus, X, Trash2, ShoppingCart, UserPlus, Gift, CheckCircle,
-  Phone, Percent, Wallet, ChevronRight, User,
+  Phone, Percent, Wallet, ChevronRight, User, Scissors,
 } from "lucide-react";
 
 const fmt = (n: number) => Math.round(n ?? 0).toLocaleString("fr-FR");
@@ -61,6 +61,15 @@ export default function Sale() {
   const [discountValue, setDiscountValue] = useState("");
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
   const [tip, setTip] = useState("");
+
+  // Création rapide d'une prestation absente du catalogue (depuis la caisse).
+  // Elle est enregistrée durablement : disponible pour les prochaines fois.
+  const [showNewService, setShowNewService] = useState(false);
+  const [nsName, setNsName] = useState("");
+  const [nsPrice, setNsPrice] = useState("");
+  const [nsCategory, setNsCategory] = useState("");
+  const [creatingService, setCreatingService] = useState(false);
+  const [nsError, setNsError] = useState("");
 
   const [showRecap, setShowRecap] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -158,6 +167,31 @@ export default function Sale() {
     } catch (e) {
       setClientError((e as Error).message || "Échec de la création.");
     } finally { setCreatingClient(false); }
+  };
+
+  // Crée la prestation dans le catalogue puis l'ajoute directement au panier.
+  const handleCreateService = async () => {
+    if (!businessId || creatingService || !nsName.trim()) return;
+    const priceFcfa = parseInt(nsPrice) || 0;
+    if (priceFcfa <= 0) { setNsError("Indiquez un prix."); return; }
+    setCreatingService(true);
+    setNsError("");
+    try {
+      // price est stocké en centimes côté base (comme tout le catalogue) ; durée par défaut 30 min.
+      const created = await createService(businessId, {
+        name: nsName.trim(),
+        price: priceFcfa * 100,
+        duration: 30,
+        category: nsCategory || undefined,
+      });
+      setServices(prev => [...prev, created]);
+      setVariantsByService(prev => ({ ...prev, [created.id]: [] }));
+      addToCart(created);
+      setNsName(""); setNsPrice(""); setNsCategory("");
+      setShowNewService(false);
+    } catch (e) {
+      setNsError((e as Error).message || "Échec de la création.");
+    } finally { setCreatingService(false); }
   };
 
   // --- Panier ---
@@ -275,8 +309,40 @@ export default function Sale() {
             ))}
           </div>
 
+          {/* Prestation absente du catalogue : on la crée en 2 champs, elle est enregistrée
+              pour les prochaines fois et ajoutée au panier immédiatement. */}
+          <div>
+            <button onClick={() => { setShowNewService(v => !v); setNsError(""); setNsName(serviceSearch.trim()); }}
+              className="text-sm text-indigo-600 font-medium hover:underline flex items-center">
+              <Scissors className="h-4 w-4 mr-1.5" />Prestation absente ? Créer rapidement
+            </button>
+            {showNewService && (
+              <div className="mt-2 bg-white border border-indigo-100 rounded-xl p-3 space-y-2 shadow-sm">
+                {nsError && <p className="text-xs text-red-600">{nsError}</p>}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input value={nsName} onChange={e => setNsName(e.target.value)} placeholder="Nom de la prestation"
+                    className="flex-1 border-gray-200 rounded-lg text-sm" />
+                  <div className="flex items-center gap-1">
+                    <input type="number" min="0" value={nsPrice} onChange={e => setNsPrice(e.target.value)} placeholder="Prix"
+                      className="w-28 border-gray-200 rounded-lg text-sm" />
+                    <span className="text-xs text-gray-500">FCFA</span>
+                  </div>
+                  <select value={nsCategory} onChange={e => setNsCategory(e.target.value)} className="text-sm border-gray-200 rounded-lg">
+                    <option value="">Catégorie (optionnel)</option>
+                    {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                  <button onClick={handleCreateService} disabled={creatingService || !nsName.trim() || !nsPrice}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap">
+                    {creatingService ? "..." : "Créer + ajouter"}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400">Elle sera enregistrée dans le catalogue : disponible avec son prix la prochaine fois.</p>
+              </div>
+            )}
+          </div>
+
           {filteredServices.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-500">Aucune prestation. Ajoutez-en dans l'onglet Prestations.</div>
+            <div className="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-500">Aucune prestation ne correspond. Utilisez « Créer rapidement » ci-dessus.</div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {filteredServices.map(s => {
@@ -388,8 +454,13 @@ export default function Sale() {
                     <span className={`text-sm font-bold ${l.offered ? "text-amber-600 line-through" : "text-gray-900"}`}>{fmt(l.unitPrice * l.qty)} FCFA</span>
                   </div>
                   <div className="flex items-center justify-between mt-2 gap-2">
-                    <select value={l.employeeId} onChange={e => updateLine(l.key, { employeeId: e.target.value })} className="flex-1 text-xs border-gray-200 rounded-lg py-1">
-                      <option value="">Employé (optionnel)</option>
+                    {/* Employé qui réalise la prestation : alimente le classement
+                        "employé du mois" du tableau de bord. Mis en évidence tant
+                        qu'il n'est pas renseigné (non bloquant). */}
+                    <select value={l.employeeId} onChange={e => updateLine(l.key, { employeeId: e.target.value })}
+                      title="Employé qui réalise la prestation"
+                      className={`flex-1 text-xs rounded-lg py-1 ${l.employeeId ? "border-gray-200" : "border-amber-300 bg-amber-50 text-amber-800"}`}>
+                      <option value="">Qui réalise ?</option>
                       {employees.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
                     </select>
                     <label className="flex items-center text-xs text-gray-600 whitespace-nowrap" title="Offrir cette prestation">
