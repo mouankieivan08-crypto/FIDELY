@@ -14,6 +14,7 @@ import Categories from "./pages/Categories";
 import Reports from "./pages/Reports";
 import Accounting from "./pages/Accounting";
 import Personnel from "./pages/Personnel";
+import Inventory from "./pages/Inventory";
 import React from "react";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -128,6 +129,14 @@ export default function App() {
             element={
               <PrivateRoute>
                 <Personnel />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/inventory"
+            element={
+              <PrivateRoute>
+                <Inventory />
               </PrivateRoute>
             }
           />

@@ -79,7 +79,7 @@ export default function Personnel() {
       <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-6 text-sm text-indigo-800">
         <strong>Comment ça marche :</strong> créez un accès avec un e-mail + un mot de passe (l'e-mail n'a pas besoin d'exister vraiment) et choisissez le rôle.
         Le membre se connecte sur la page de connexion de Fidely avec ces identifiants et accède automatiquement à votre établissement.
-        Les <strong>administrateurs</strong> ont accès à tout ; le <strong>staff</strong> n'a pas accès à la comptabilité ni à la gestion du personnel.
+        Les <strong>administrateurs</strong> ont accès à tout. Le <strong>staff</strong> peut vendre, gérer les clients, pointer et modifier la comptabilité, mais ne peut ni supprimer une écriture comptable, ni supprimer un employé, ni gérer ce personnel (cette page) ni consulter les Rapports.
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">

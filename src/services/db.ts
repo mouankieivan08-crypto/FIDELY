@@ -169,6 +169,26 @@ export interface SalesSummary {
   collected: number;     // total encaissé (net + pourboires)
   series: { date: string; total: number }[];
   topServices: { name: string; count: number; amount: number }[];
+  topEmployees: { employeeId: number; name: string; count: number; amount: number }[]; // employé du mois
+}
+
+export interface Product {
+  id: number;
+  businessId: number;
+  name: string;
+  category?: string;
+  unitLabel: string;      // ex: boîte, flacon
+  usesPerUnit: number;    // ex: 1 boîte = 6 utilisations
+  stockUses: number;      // stock restant, en utilisations
+  lowStockUses: number;   // seuil d'alerte (en utilisations)
+  createdAt: string;
+}
+
+export interface ServiceProduct {
+  id: number;
+  serviceId: number;
+  productId: number;
+  usesPerPrestation: number;
 }
 
 // Synthèse des ventes sur une période (source unique = ventes enregistrées).
@@ -190,6 +210,44 @@ export const redeemReward = async (customerId: string, rewardId: number) => {
 
 export const getEmployees = async (businessId: number) => {
   return fetchApi(`/businesses/${businessId}/employees`);
+};
+
+// --- Inventaire / stocks (admin) ---
+export const getProducts = async (businessId: number): Promise<Product[]> => {
+  return fetchApi(`/businesses/${businessId}/products`);
+};
+export const createProduct = async (businessId: number, data: Partial<Product>): Promise<Product> => {
+  return fetchApi(`/businesses/${businessId}/products`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+};
+export const updateProduct = async (productId: number, data: Partial<Product>): Promise<Product> => {
+  return fetchApi(`/products/${productId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+};
+export const deleteProduct = async (productId: number) => {
+  return fetchApi(`/products/${productId}`, { method: 'DELETE' });
+};
+export const getServiceProducts = async (businessId: number): Promise<ServiceProduct[]> => {
+  return fetchApi(`/businesses/${businessId}/service-products`);
+};
+export const linkServiceProduct = async (businessId: number, data: { serviceId: number; productId: number; usesPerPrestation?: number }): Promise<ServiceProduct> => {
+  return fetchApi(`/businesses/${businessId}/service-products`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+};
+export const unlinkServiceProduct = async (linkId: number) => {
+  return fetchApi(`/service-products/${linkId}`, { method: 'DELETE' });
+};
+
+// --- Notifications in-app (cloche) ---
+export interface AppNotifications {
+  inactiveClients: { id: string; name: string; code: string; days: number }[];
+  lowStock: { id: number; name: string; unitLabel: string; usesPerUnit: number; stockUses: number; unitsLeft: number }[];
+}
+export const getNotifications = async (businessId: number): Promise<AppNotifications> => {
+  return fetchApi(`/businesses/${businessId}/notifications`);
 };
 
 export const createEmployee = async (businessId: number, data: { name: string, role: string, phone: string, avatarUrl?: string }) => {

@@ -359,31 +359,33 @@ export default function Dashboard() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
           <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center">
-            <h3 className="text-lg font-bold text-gray-900">Top Employés</h3>
-            <span className="text-xs text-gray-500 font-medium px-2 py-1 bg-gray-100 rounded-md">Par rendez-vous</span>
+            <h3 className="text-lg font-bold text-gray-900">Employé du mois</h3>
+            <span className="text-xs text-gray-500 font-medium px-2 py-1 bg-gray-100 rounded-md capitalize">Prestations · {period}</span>
           </div>
           <div className="p-6 flex-1 flex flex-col justify-center">
-            {employeesData.length > 0 ? (
+            {(sales?.topEmployees?.length || 0) > 0 ? (
               <div className="space-y-4">
-                {employeesData.slice(0, 4).map((emp, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs mr-3">
+                {sales!.topEmployees.slice(0, 5).map((emp, i) => (
+                  <div key={emp.employeeId} className="flex items-center justify-between">
+                    <div className="flex items-center min-w-0">
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs mr-3 ${i === 0 ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700"}`}>
                         {emp.name.charAt(0).toUpperCase()}
                       </div>
-                      <p className="text-sm font-medium text-gray-900">{emp.name}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-gray-900">
-                        {filteredAppointments.filter(a => a.employeeId === emp.id).length} rdv
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {i === 0 && <span className="mr-1">🏆</span>}{emp.name}
                       </p>
+                    </div>
+                    <div className="text-right flex-shrink-0 ml-2">
+                      <p className="text-sm font-bold text-gray-900">{emp.count} prestation{emp.count > 1 ? "s" : ""}</p>
+                      <p className="text-[11px] text-gray-400">{fmtCA(emp.amount)} FCFA</p>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="text-center text-gray-500 text-sm">
-                Pas encore de données.
+                Aucune prestation attribuée sur cette période.<br />
+                <span className="text-gray-400 text-xs">Assignez l'employé à chaque prestation dans la caisse.</span>
               </div>
             )}
           </div>

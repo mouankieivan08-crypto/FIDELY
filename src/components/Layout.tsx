@@ -1,10 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond, Wallet, Shield, Tag, ShoppingCart } from "lucide-react";
+import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond, Wallet, Shield, Tag, ShoppingCart, Boxes } from "lucide-react";
 import { useState, useEffect } from "react";
 import React from "react";
 import { cn } from "../lib/utils";
 import { getBusiness } from "../services/db";
+import NotificationBell from "./NotificationBell";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -12,12 +13,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [businessName, setBusinessName] = useState("Fidely");
   const [role, setRole] = useState<string>("admin");
+  const [businessId, setBusinessId] = useState<number | null>(null);
 
   useEffect(() => {
     if (user) {
       getBusiness(user.id).then(rest => {
         if (rest) {
           setBusinessName(rest.name);
+          setBusinessId(rest.id);
           if (rest.role) setRole(rest.role);
         }
       });
@@ -40,6 +43,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: "Fidélité", href: "/programs", icon: CreditCard, adminOnly: false },
     { name: "Scanner", href: "/scanner", icon: ScanLine, adminOnly: false },
     { name: "Comptabilité", href: "/accounting", icon: Wallet, adminOnly: false },
+    { name: "Inventaire", href: "/inventory", icon: Boxes, adminOnly: true },
     { name: "Personnel", href: "/personnel", icon: Shield, adminOnly: true },
     { name: "Rapports", href: "/reports", icon: BarChart3, adminOnly: true },
   ].filter(item => !item.adminOnly || role === "admin");
@@ -108,10 +112,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Diamond className="h-6 w-6 text-indigo-500 mr-2" />
             <span className="text-xl font-bold tracking-widest text-indigo-500 uppercase truncate" title={businessName}>{businessName}</span>
           </div>
-          <button onClick={() => setIsMobileMenuOpen(true)}>
-            <Menu className="h-6 w-6 text-gray-400" />
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationBell businessId={businessId} />
+            <button onClick={() => setIsMobileMenuOpen(true)}>
+              <Menu className="h-6 w-6 text-gray-400" />
+            </button>
+          </div>
         </header>
+
+        {/* Barre supérieure (desktop) : cloche de notifications */}
+        <div className="hidden lg:flex items-center justify-end h-14 px-8 border-b border-gray-100 bg-white">
+          <NotificationBell businessId={businessId} />
+        </div>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">

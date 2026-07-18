@@ -495,6 +495,25 @@ export function createApiApp() {
             validatedBy: req.user!.uid,
           }))
         );
+
+        // Décrément automatique du stock : chaque produit lié à cette prestation est
+        // consommé (même si la prestation est offerte : le produit est bien utilisé).
+        // Best-effort : un souci d'inventaire ne doit jamais bloquer une vente.
+        if (serviceId) {
+          try {
+            const links = unwrap(await supabase.from("service_products").select("*").eq("service_id", serviceId));
+            for (const link of links || []) {
+              const l = toCamelCase<{ productId: number; usesPerPrestation: number }>(link);
+              const prod = unwrap(await supabase.from("products").select("stock_uses").eq("id", l.productId).limit(1));
+              if (prod && prod.length > 0) {
+                const newStock = Math.max(0, (prod[0].stock_uses || 0) - (l.usesPerPrestation || 1));
+                unwrap(await supabase.from("products").update({ stock_uses: newStock }).eq("id", l.productId));
+              }
+            }
+          } catch (e) {
+            console.error("Décrément stock échoué:", (e as Error).message);
+          }
+        }
       }
       const netPrestations = Math.max(0, totalAmount - discount); // chiffre d'affaires prestations (hors pourboire)
       totalAmount = netPrestations + tip;                         // total encaissé (avec pourboire)
@@ -1140,6 +1159,7 @@ export function createApiApp() {
       let prestations = 0, tickets = 0, gross = 0, discounts = 0, tips = 0, offeredCount = 0, offeredValue = 0;
       const seriesMap: Record<string, number> = {};
       const svcMap: Record<string, { count: number; amount: number }> = {};
+      const empMap: Record<number, { count: number; amount: number }> = {}; // prestations par employé
       for (const v of rows) {
         prestations += 1;
         if (v.isPrimary) tickets += 1;
@@ -1155,7 +1175,20 @@ export function createApiApp() {
         if (!svcMap[name]) svcMap[name] = { count: 0, amount: 0 };
         svcMap[name].count += 1;
         svcMap[name].amount += (v.offered ? 0 : amt);
+        if (v.employeeId) {
+          if (!empMap[v.employeeId]) empMap[v.employeeId] = { count: 0, amount: 0 };
+          empMap[v.employeeId].count += 1;
+          empMap[v.employeeId].amount += (v.offered ? 0 : amt);
+        }
       }
+      // Classement des employés par nombre de prestations réalisées sur la période
+      // (pour "l'employé du mois" sur le tableau de bord).
+      const empRows = unwrap(await supabase.from("employees").select("id, name").eq("business_id", businessId)) || [];
+      const empName: Record<number, string> = {};
+      for (const e of empRows) empName[e.id] = e.name;
+      const topEmployees = Object.entries(empMap)
+        .map(([id, s]) => ({ employeeId: Number(id), name: empName[Number(id)] || "—", count: s.count, amount: s.amount }))
+        .sort((a, b) => b.count - a.count);
       const net = Math.max(0, gross - discounts);          // revenu net des prestations
       const collected = net + tips;                        // total encaissé (avec pourboires)
       const series = Object.entries(seriesMap)
@@ -1165,7 +1198,7 @@ export function createApiApp() {
         .map(([name, s]) => ({ name, count: s.count, amount: s.amount }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 8);
-      res.json({ prestations, tickets, gross, discounts, tips, offeredCount, offeredValue, net, collected, series, topServices });
+      res.json({ prestations, tickets, gross, discounts, tips, offeredCount, offeredValue, net, collected, series, topServices, topEmployees });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -1387,6 +1420,177 @@ export function createApiApp() {
         }
       }
       res.json({ processed });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // --- Inventaire / stocks (réservé à l'administrateur) ---
+
+  app.get("/api/businesses/:id/products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("products").select("*").eq("business_id", parseInt(req.params.id)).order("name"));
+      res.json(toCamelCaseArray(rows || []));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const productSchema = z.object({
+    name: z.string().trim().min(1).max(200),
+    category: z.string().trim().max(100).optional(),
+    unitLabel: z.string().trim().max(50).optional(),
+    usesPerUnit: z.coerce.number().int().min(1).max(100000),
+    stockUses: z.coerce.number().int().min(0).optional(),
+    lowStockUses: z.coerce.number().int().min(0).optional(),
+  });
+
+  app.post("/api/businesses/:id/products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const parsed = productSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(
+        await supabase.from("products").insert(toSnakeCase({
+          businessId: parseInt(req.params.id),
+          name: parsed.data.name,
+          category: parsed.data.category,
+          unitLabel: parsed.data.unitLabel || "unité",
+          usesPerUnit: parsed.data.usesPerUnit,
+          stockUses: parsed.data.stockUses ?? 0,
+          lowStockUses: parsed.data.lowStockUses ?? 0,
+        })).select().single()
+      );
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.put("/api/products/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("products").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const prod = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, prod.businessId);
+      if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
+      const parsed = productSchema.partial().safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(await supabase.from("products").update(toSnakeCase(parsed.data)).eq("id", parseInt(req.params.id)).select().single());
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete("/api/products/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("products").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const prod = toCamelCase<{ businessId: number }>(rows[0]);
+      const access = await loadAccess(req, res, prod.businessId);
+      if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
+      unwrap(await supabase.from("service_products").delete().eq("product_id", parseInt(req.params.id)));
+      unwrap(await supabase.from("products").delete().eq("id", parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Liens prestation <-> produit (config dans l'onglet Inventaire, admin only)
+  app.get("/api/businesses/:id/service-products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      const productIds = (unwrap(await supabase.from("products").select("id").eq("business_id", businessId)) || []).map((p: any) => p.id);
+      if (productIds.length === 0) return res.json([]);
+      const rows = unwrap(await supabase.from("service_products").select("*").in("product_id", productIds));
+      res.json(toCamelCaseArray(rows || []));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const linkSchema = z.object({
+    serviceId: z.coerce.number().int().positive(),
+    productId: z.coerce.number().int().positive(),
+    usesPerPrestation: z.coerce.number().int().min(1).max(1000).optional(),
+  });
+
+  app.post("/api/businesses/:id/service-products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const parsed = linkSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      // upsert : si le lien existe déjà, on met à jour la quantité consommée
+      const existing = unwrap(await supabase.from("service_products").select("id").eq("service_id", parsed.data.serviceId).eq("product_id", parsed.data.productId).limit(1));
+      const payload = toSnakeCase({ serviceId: parsed.data.serviceId, productId: parsed.data.productId, usesPerPrestation: parsed.data.usesPerPrestation || 1 });
+      const result = existing && existing.length > 0
+        ? unwrap(await supabase.from("service_products").update(payload).eq("id", existing[0].id).select().single())
+        : unwrap(await supabase.from("service_products").insert(payload).select().single());
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete("/api/service-products/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("service_products").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const link = toCamelCase<{ productId: number }>(rows[0]);
+      const prod = unwrap(await supabase.from("products").select("business_id").eq("id", link.productId).limit(1));
+      const bizId = prod && prod[0] ? prod[0].business_id : null;
+      if (bizId == null) return res.status(404).json({ error: "Not found" });
+      const access = await loadAccess(req, res, bizId);
+      if (!access) return;
+      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
+      unwrap(await supabase.from("service_products").delete().eq("id", parseInt(req.params.id)));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // --- Notifications in-app (cloche) : clients inactifs 60j+ et stock bas ---
+  app.get("/api/businesses/:id/notifications", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      const isAdmin = (req as any).role === "admin";
+      const INACTIVE_DAYS = 60;
+
+      // Clients inactifs (mêmes 60 jours que le badge "Inactif")
+      const customers = unwrap(await supabase.from("customers").select("id, name, code, created_at").eq("business_id", businessId)) || [];
+      const visits = unwrap(await supabase.from("visits").select("customer_id, date").eq("business_id", businessId)) || [];
+      const lastVisit: Record<string, string> = {};
+      for (const v of visits) {
+        if (!lastVisit[v.customer_id] || v.date > lastVisit[v.customer_id]) lastVisit[v.customer_id] = v.date;
+      }
+      const cutoff = Date.now() - INACTIVE_DAYS * 86400000;
+      const inactiveClients = customers
+        .map((c: any) => {
+          const ref = lastVisit[c.id] || c.created_at;
+          const days = ref ? Math.floor((Date.now() - new Date(ref).getTime()) / 86400000) : 0;
+          return { id: c.id, name: c.name, code: c.code, days, ref };
+        })
+        .filter((c: any) => c.ref && new Date(c.ref).getTime() <= cutoff)
+        .sort((a: any, b: any) => b.days - a.days)
+        .map(({ id, name, code, days }: any) => ({ id, name, code, days }));
+
+      // Stock bas (réservé admin)
+      let lowStock: any[] = [];
+      if (isAdmin) {
+        const products = unwrap(await supabase.from("products").select("*").eq("business_id", businessId)) || [];
+        lowStock = (products as any[])
+          .map((p) => toCamelCase<any>(p))
+          .filter((p: any) => (p.lowStockUses || 0) > 0 && (p.stockUses || 0) <= (p.lowStockUses || 0))
+          .map((p: any) => ({
+            id: p.id, name: p.name, unitLabel: p.unitLabel, usesPerUnit: p.usesPerUnit,
+            stockUses: p.stockUses, unitsLeft: Math.floor((p.stockUses || 0) / (p.usesPerUnit || 1)),
+          }));
+      }
+
+      res.json({ inactiveClients, lowStock });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
