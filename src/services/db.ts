@@ -250,6 +250,42 @@ export const getNotifications = async (businessId: number): Promise<AppNotificat
   return fetchApi(`/businesses/${businessId}/notifications`);
 };
 
+// --- Avis clients (QR -> page publique -> panneau admin) ---
+export interface Review {
+  id: number;
+  businessId: number;
+  rating: number;
+  comment?: string;
+  customerName?: string;
+  createdAt: string;
+}
+
+// Public (page /avis, aucune session requise) : identifie l'unique entreprise.
+export const getPublicBusiness = async (): Promise<{ id: number; name: string }> => {
+  const response = await fetch(`/api/public/business`);
+  if (!response.ok) throw new Error("Introuvable.");
+  return response.json();
+};
+
+// Public : dépôt d'un avis, aucune session requise.
+export const submitReview = async (businessId: number, data: { rating: number; comment?: string; customerName?: string }): Promise<Review> => {
+  const response = await fetch(`/api/businesses/${businessId}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || "Échec de l'envoi.");
+  }
+  return response.json();
+};
+
+// Admin : liste des avis reçus.
+export const getReviews = async (businessId: number): Promise<Review[]> => {
+  return fetchApi(`/businesses/${businessId}/reviews`);
+};
+
 export const createEmployee = async (businessId: number, data: { name: string, role: string, phone: string, avatarUrl?: string }) => {
   return fetchApi(`/businesses/${businessId}/employees`, {
     method: 'POST',

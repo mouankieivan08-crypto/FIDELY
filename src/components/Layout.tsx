@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond, Wallet, Shield, Tag, ShoppingCart, Boxes } from "lucide-react";
+import { LayoutDashboard, CreditCard, ScanLine, Users, LogOut, Menu, X, Briefcase, Calendar as CalendarIcon, Scissors, BarChart3, Diamond, Wallet, Shield, Tag, ShoppingCart, Boxes, Star } from "lucide-react";
 import { useState, useEffect } from "react";
 import React from "react";
 import { cn } from "../lib/utils";
@@ -44,6 +44,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: "Scanner", href: "/scanner", icon: ScanLine, adminOnly: false },
     { name: "Comptabilité", href: "/accounting", icon: Wallet, adminOnly: false },
     { name: "Inventaire", href: "/inventory", icon: Boxes, adminOnly: true },
+    { name: "Avis clients", href: "/reviews", icon: Star, adminOnly: true },
     { name: "Personnel", href: "/personnel", icon: Shield, adminOnly: true },
     { name: "Rapports", href: "/reports", icon: BarChart3, adminOnly: true },
   ].filter(item => !item.adminOnly || role === "admin");

@@ -5,6 +5,8 @@ import { requireAuth, AuthRequest } from "./middleware/auth.js";
 import { supabase } from "./lib/supabase-server.js";
 import { toSnakeCase, toCamelCase, toCamelCaseArray } from "./lib/caseConvert.js";
 import { notifyOnce } from "./lib/whatsapp.js";
+import { generateCardNumber, generateCustomerCode } from "./lib/customerCodes.js";
+import { registerPublicRoutes } from "./publicApi.js";
 
 function unwrap<T>({ data, error }: { data: T | null; error: { message: string } | null }): T {
   if (error) throw new Error(error.message);
@@ -17,7 +19,25 @@ function unwrap<T>({ data, error }: { data: T | null; error: { message: string }
 export function createApiApp() {
   const app = express();
 
+  // Vercel/tout reverse-proxy en amont : nécessaire pour que req.ip reflète le
+  // vrai client (utilisé par le rate-limiting des routes publiques ci-dessous).
+  app.set("trust proxy", true);
+
   app.use(express.json({ limit: "5mb" })); // selfies are base64-encoded images
+
+  // CORS ouvert, mais restreint au préfixe /api/public : ce sont les seules routes
+  // conçues pour être appelées depuis un autre domaine (le site vitrine, déployé en
+  // tant que projet Vercel séparé). Le reste de l'API exige de toute façon un Bearer
+  // token Supabase, donc l'absence de CORS ailleurs n'est pas une mesure de sécurité —
+  // on la garde simplement inchangée pour ne rien modifier au comportement existant.
+  app.use("/api/public", (req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") return res.sendStatus(204);
+    next();
+  });
+  registerPublicRoutes(app);
 
   const syncUser = async (uid: string, email?: string) => {
     const existing = unwrap(await supabase.from("users").select("id").eq("uid", uid).limit(1));
@@ -96,6 +116,59 @@ export function createApiApp() {
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // --- Avis clients (QR code -> page publique -> panneau admin) ---
+
+  // Public : identifie l'unique entreprise de l'application (mono-tenant) pour que la
+  // page d'avis /avis puisse fonctionner sans authentification. Ne renvoie rien de
+  // sensible (juste id + nom).
+  app.get("/api/public/business", async (req, res) => {
+    try {
+      const rows = unwrap(await supabase.from("businesses").select("id, name").limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json(rows[0]);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const reviewSchema = z.object({
+    rating: z.coerce.number().int().min(1).max(5),
+    comment: z.string().trim().max(1000).optional(),
+    customerName: z.string().trim().max(200).optional(),
+  });
+
+  // Public : n'importe qui avec le lien/QR peut déposer un avis. Aucune information
+  // sensible n'est exposée ni requise (pas de téléphone, pas d'authentification).
+  app.post("/api/businesses/:id/reviews", async (req, res) => {
+    try {
+      const parsed = reviewSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const result = unwrap(
+        await supabase.from("reviews").insert(toSnakeCase({
+          businessId: parseInt(req.params.id),
+          rating: parsed.data.rating,
+          comment: parsed.data.comment,
+          customerName: parsed.data.customerName,
+        })).select().single()
+      );
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Réservé admin : consultation des avis (note, commentaire, nom si renseigné).
+  app.get("/api/businesses/:id/reviews", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(
+        await supabase.from("reviews").select("*").eq("business_id", parseInt(req.params.id)).order("created_at", { ascending: false })
+      );
+      res.json(toCamelCaseArray(rows || []));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
   });
 
   // Get business for logged in user (as owner, or as an invited staff member)
@@ -245,17 +318,6 @@ export function createApiApp() {
     hasCard: z.boolean().optional(),
   });
 
-  // Génère un numéro de carte court et lisible (ex: "D4451"), unique dans l'entreprise.
-  const generateCardNumber = async (businessId: number): Promise<string> => {
-    for (let i = 0; i < 20; i++) {
-      const letter = "ABCDEFGHJKLMNPRSTUVWXYZ"[Math.floor(Math.random() * 22)];
-      const candidate = letter + Math.floor(1000 + Math.random() * 9000);
-      const clash = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId).eq("card_number", candidate).limit(1));
-      if (!clash || clash.length === 0) return candidate;
-    }
-    return "C" + Date.now().toString().slice(-5);
-  };
-
   app.post("/api/businesses/:id/customers", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = createCustomerSchema.safeParse(req.body);
@@ -268,15 +330,7 @@ export function createApiApp() {
 
       // Carte de fidélité : numéro attribué seulement si demandé (sinon null = pas de carte).
       const cardNumber = wantsCard ? await generateCardNumber(businessId) : null;
-
-      // Sequential unique client code CL-0001, CL-0002... (never reused/duplicated)
-      const countRows = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId));
-      let code = "";
-      for (let n = (countRows?.length || 0) + 1; ; n++) {
-        const candidate = "CL-" + String(n).padStart(4, "0");
-        const clash = unwrap(await supabase.from("customers").select("id").eq("business_id", businessId).eq("code", candidate).limit(1));
-        if (!clash || clash.length === 0) { code = candidate; break; }
-      }
+      const code = await generateCustomerCode(businessId);
 
       const result = unwrap(
         await supabase

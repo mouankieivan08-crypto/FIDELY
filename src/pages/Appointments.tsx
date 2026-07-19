@@ -137,10 +137,11 @@ export default function Appointments() {
                   </div>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  apt.status === 'completed' ? 'bg-gray-100 text-gray-600' : 
-                  apt.status === 'in_progress' ? 'bg-indigo-50 text-indigo-700' : 'bg-green-50 text-green-700'
+                  apt.status === 'completed' ? 'bg-gray-100 text-gray-600' :
+                  apt.status === 'in_progress' ? 'bg-indigo-50 text-indigo-700' :
+                  apt.status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
                 }`}>
-                  {apt.status === 'scheduled' ? 'À venir' : apt.status}
+                  {apt.status === 'scheduled' ? 'À venir' : apt.status === 'pending' ? 'Demande en ligne — à confirmer' : apt.status}
                 </span>
               </div>
             ))
