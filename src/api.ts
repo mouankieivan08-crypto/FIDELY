@@ -37,7 +37,13 @@ export function createApiApp() {
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
-  registerPublicRoutes(app);
+  // Le site de réservation publique n'est pas encore validé par le client : ces
+  // routes restent désactivées partout SAUF en local, tant que PUBLIC_BOOKING_ENABLED
+  // n'est pas explicitement mis à "true" (jamais ajouté aux variables d'env Vercel
+  // pour l'instant — donc inactif en production même si ce code est déployé).
+  if (process.env.PUBLIC_BOOKING_ENABLED === "true") {
+    registerPublicRoutes(app);
+  }
 
   const syncUser = async (uid: string, email?: string) => {
     const existing = unwrap(await supabase.from("users").select("id").eq("uid", uid).limit(1));
