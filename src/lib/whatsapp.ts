@@ -10,14 +10,15 @@ const ENABLED = !!(PHONE_NUMBER_ID && ACCESS_TOKEN);
 
 export type WhatsappTemplate = "reward_unlocked" | "tier_reached" | "welcome_new_client" | "inactive_reminder";
 
-// Les numéros sont stockés en format local (ex: "690112233", 9 chiffres, sans
-// indicatif) ; l'API WhatsApp exige l'E.164 (+237...). Indicatif Cameroun en dur
-// pour l'instant (application mono-tenant, un seul pays concerné).
+// Les numéros sont stockés en format local (9 chiffres, avec ou sans le 0 initial) ;
+// l'API WhatsApp exige l'E.164 (+242...). Indicatif Congo-Brazzaville en dur pour
+// l'instant (application mono-tenant, un seul pays concerné — confirmé par le numéro
+// WhatsApp du salon lui-même : +242 069570399).
 function normalizePhone(raw: string): string | null {
   const digits = (raw || "").replace(/\D/g, "");
-  if (digits.startsWith("237") && digits.length === 12) return digits;
-  if (digits.length === 9) return "237" + digits;
-  if (digits.startsWith("0") && digits.length === 10) return "237" + digits.slice(1);
+  if (digits.startsWith("242") && digits.length === 12) return digits;
+  if (digits.length === 9) return "242" + digits;
+  if (digits.startsWith("0") && digits.length === 10) return "242" + digits.slice(1);
   return null;
 }
 

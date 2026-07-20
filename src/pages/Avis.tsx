@@ -3,8 +3,8 @@ import { Star, CheckCircle } from "lucide-react";
 import { getPublicBusiness, submitReview } from "../services/db";
 
 // Numéro WhatsApp du salon pour la réservation directe depuis la page d'avis.
-// Format local fourni : 069570399 -> E.164 Cameroun : on retire le 0 initial, on ajoute 237.
-const SALON_WHATSAPP = "237" + "069570399".replace(/^0/, "");
+// Numéro complet confirmé par le client : +242 069570399 (Congo-Brazzaville).
+const SALON_WHATSAPP = "242069570399";
 const WHATSAPP_MESSAGE = "Bonjour, je souhaite réserver un rendez-vous chez JEANNY EMPIRE BEAUTY.";
 const GOLD = "#d4af37";
 
