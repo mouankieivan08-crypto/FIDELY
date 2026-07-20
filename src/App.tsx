@@ -17,6 +17,7 @@ import Personnel from "./pages/Personnel";
 import Inventory from "./pages/Inventory";
 import Reviews from "./pages/Reviews";
 import Avis from "./pages/Avis";
+import PublicBooking from "./pages/PublicBooking";
 import React from "react";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="/" element={<Login />} />
           <Route path="/card/:id" element={<CustomerView />} />
           <Route path="/avis" element={<Avis />} />
+          <Route path="/reserver" element={<PublicBooking />} />
           <Route
             path="/dashboard"
             element={

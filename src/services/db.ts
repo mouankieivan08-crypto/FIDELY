@@ -250,6 +250,45 @@ export const getNotifications = async (businessId: number): Promise<AppNotificat
   return fetchApi(`/businesses/${businessId}/notifications`);
 };
 
+// --- Site de réservation publique (backend prêt, désactivé en production tant
+// que non validé — voir PUBLIC_BOOKING_ENABLED) ---
+export interface PublicService {
+  id: number; name: string; categoryId?: number; category?: string;
+  price: number; duration: number; description?: string;
+}
+export interface PublicCatalog {
+  categories: { id: number; name: string }[];
+  services: PublicService[];
+  hours: Record<number, { open: string; close: string } | null>;
+}
+export const getPublicCatalog = async (): Promise<PublicCatalog> => {
+  const r = await fetch(`/api/public/catalog`);
+  if (!r.ok) throw new Error("Catalogue indisponible.");
+  return r.json();
+};
+export const getPublicEmployees = async (): Promise<{ id: number; name: string; role: string }[]> => {
+  const r = await fetch(`/api/public/employees`);
+  if (!r.ok) throw new Error("Liste des employés indisponible.");
+  return r.json();
+};
+export const getPublicSlots = async (date: string, duration: number, employeeId?: number): Promise<{ slots: string[]; closed?: boolean }> => {
+  const params = new URLSearchParams({ date, duration: String(duration) });
+  if (employeeId) params.set("employeeId", String(employeeId));
+  const r = await fetch(`/api/public/slots?${params.toString()}`);
+  if (!r.ok) throw new Error("Créneaux indisponibles.");
+  return r.json();
+};
+export const createPublicAppointment = async (data: {
+  serviceIds: number[]; employeeId?: number; date: string; time: string; name: string; phone: string; notes?: string;
+}): Promise<{ success: boolean; summary: { date: string; time: string; endTime: string; services: string[]; employeeName: string } }> => {
+  const r = await fetch(`/api/public/appointments`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || "Échec de la réservation.");
+  return body;
+};
+
 // --- Avis clients (QR -> page publique -> panneau admin) ---
 export interface Review {
   id: number;
