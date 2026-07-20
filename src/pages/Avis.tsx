@@ -50,7 +50,7 @@ export default function Avis() {
       <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
         <div className="bg-gray-950 px-6 pt-8 pb-7 text-center border-b" style={{ borderColor: "rgba(212,175,55,0.25)" }}>
           {logoOk && (
-            <img src="/logo.png" alt={business?.name || "JEANNY EMPIRE BEAUTY"} onError={() => setLogoOk(false)}
+            <img src="/logo.jpg" alt={business?.name || "JEANNY EMPIRE BEAUTY"} onError={() => setLogoOk(false)}
               className="h-16 w-auto mx-auto mb-4 object-contain" />
           )}
           <h1 className="text-2xl font-bold text-white tracking-wide" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
