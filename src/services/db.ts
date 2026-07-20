@@ -229,6 +229,18 @@ export const updateProduct = async (productId: number, data: Partial<Product>): 
 export const deleteProduct = async (productId: number) => {
   return fetchApi(`/products/${productId}`, { method: 'DELETE' });
 };
+// Réapprovisionnement tracé (delta en utilisations, positif = entrée) — accessible au staff.
+export const restockProduct = async (productId: number, delta: number): Promise<Product> => {
+  return fetchApi(`/products/${productId}/restock`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ delta }),
+  });
+};
+export interface StockMovement {
+  id: number; productId: number; delta: number; reason: string; createdBy?: string; createdAt: string;
+}
+export const getProductMovements = async (productId: number): Promise<StockMovement[]> => {
+  return fetchApi(`/products/${productId}/movements`);
+};
 export const getServiceProducts = async (businessId: number): Promise<ServiceProduct[]> => {
   return fetchApi(`/businesses/${businessId}/service-products`);
 };
@@ -296,6 +308,7 @@ export interface Review {
   rating: number;
   comment?: string;
   customerName?: string;
+  customerPhone?: string;
   createdAt: string;
 }
 
@@ -307,7 +320,7 @@ export const getPublicBusiness = async (): Promise<{ id: number; name: string }>
 };
 
 // Public : dépôt d'un avis, aucune session requise.
-export const submitReview = async (businessId: number, data: { rating: number; comment?: string; customerName?: string }): Promise<Review> => {
+export const submitReview = async (businessId: number, data: { rating: number; comment?: string; customerName?: string; customerPhone?: string }): Promise<Review> => {
   const response = await fetch(`/api/businesses/${businessId}/reviews`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

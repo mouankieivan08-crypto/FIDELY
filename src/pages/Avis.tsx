@@ -20,6 +20,7 @@ export default function Avis() {
   const [hoverRating, setHoverRating] = useState(0);
   const [comment, setComment] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
 
@@ -32,7 +33,10 @@ export default function Avis() {
     setSending(true);
     setError("");
     try {
-      await submitReview(business.id, { rating, comment: comment.trim() || undefined, customerName: name.trim() || undefined });
+      await submitReview(business.id, {
+        rating, comment: comment.trim() || undefined,
+        customerName: name.trim() || undefined, customerPhone: phone.trim() || undefined,
+      });
       setSent(true);
     } catch (e) {
       setError((e as Error).message || "Échec de l'envoi. Réessayez.");
@@ -85,7 +89,9 @@ export default function Avis() {
               <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="Un mot sur votre expérience (facultatif)"
                 rows={3} className="w-full border-gray-200 rounded-xl text-sm mb-3 resize-none" maxLength={1000} />
               <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre nom (facultatif)"
-                className="w-full border-gray-200 rounded-xl text-sm mb-4" maxLength={200} />
+                className="w-full border-gray-200 rounded-xl text-sm mb-3" maxLength={200} />
+              <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Votre téléphone (facultatif)" type="tel"
+                className="w-full border-gray-200 rounded-xl text-sm mb-4" maxLength={30} />
 
               {error && <p className="text-sm text-red-600 mb-3 text-center">{error}</p>}
 
@@ -99,7 +105,7 @@ export default function Avis() {
 
           <a href={waLink} target="_blank" rel="noreferrer"
             className="mt-4 w-full py-3.5 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600 transition-colors flex items-center justify-center">
-            📱 Réserver sur WhatsApp
+            📱 Faire ma prochaine réservation
           </a>
         </div>
       </div>

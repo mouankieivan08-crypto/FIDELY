@@ -143,10 +143,12 @@ export function createApiApp() {
     rating: z.coerce.number().int().min(1).max(5),
     comment: z.string().trim().max(1000).optional(),
     customerName: z.string().trim().max(200).optional(),
+    customerPhone: z.string().trim().max(30).optional(),
   });
 
-  // Public : n'importe qui avec le lien/QR peut déposer un avis. Aucune information
-  // sensible n'est exposée ni requise (pas de téléphone, pas d'authentification).
+  // Public : n'importe qui avec le lien/QR peut déposer un avis, sans authentification.
+  // Nom + téléphone sont facultatifs côté client mais permettent au salon de recontacter
+  // la personne — ils ne sont visibles que dans le panneau admin (jamais exposés ailleurs).
   app.post("/api/businesses/:id/reviews", async (req, res) => {
     try {
       const parsed = reviewSchema.safeParse(req.body);
@@ -157,6 +159,7 @@ export function createApiApp() {
           rating: parsed.data.rating,
           comment: parsed.data.comment,
           customerName: parsed.data.customerName,
+          customerPhone: parsed.data.customerPhone,
         })).select().single()
       );
       res.json(toCamelCase(result));
@@ -566,8 +569,13 @@ export function createApiApp() {
               const l = toCamelCase<{ productId: number; usesPerPrestation: number }>(link);
               const prod = unwrap(await supabase.from("products").select("stock_uses").eq("id", l.productId).limit(1));
               if (prod && prod.length > 0) {
-                const newStock = Math.max(0, (prod[0].stock_uses || 0) - (l.usesPerPrestation || 1));
+                const usedQty = l.usesPerPrestation || 1;
+                const newStock = Math.max(0, (prod[0].stock_uses || 0) - usedQty);
                 unwrap(await supabase.from("products").update({ stock_uses: newStock }).eq("id", l.productId));
+                unwrap(await supabase.from("stock_movements").insert({
+                  business_id: customer.businessId, product_id: l.productId, delta: -usedQty,
+                  reason: `Vente — ${serviceName || "prestation"}`, created_by: req.user!.uid,
+                }));
               }
             }
           } catch (e) {
@@ -1488,7 +1496,9 @@ export function createApiApp() {
 
   // --- Inventaire / stocks (réservé à l'administrateur) ---
 
-  app.get("/api/businesses/:id/products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  // Inventaire : consultation + réappro accessibles au staff (comme comptabilité/
+  // employés) ; seule la suppression reste réservée à l'admin.
+  app.get("/api/businesses/:id/products", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const rows = unwrap(await supabase.from("products").select("*").eq("business_id", parseInt(req.params.id)).order("name"));
       res.json(toCamelCaseArray(rows || []));
@@ -1506,7 +1516,7 @@ export function createApiApp() {
     lowStockUses: z.coerce.number().int().min(0).optional(),
   });
 
-  app.post("/api/businesses/:id/products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/products", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
@@ -1534,11 +1544,51 @@ export function createApiApp() {
       const prod = toCamelCase<{ businessId: number }>(rows[0]);
       const access = await loadAccess(req, res, prod.businessId);
       if (!access) return;
-      if (access.role !== "admin") return res.status(403).json({ error: "Réservé aux administrateurs" });
       const parsed = productSchema.partial().safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);
       const result = unwrap(await supabase.from("products").update(toSnakeCase(parsed.data)).eq("id", parseInt(req.params.id)).select().single());
       res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  const restockSchema = z.object({ delta: z.coerce.number().int() }); // en utilisations, peut être négatif (correction)
+
+  // Réapprovisionnement : action explicite et tracée (contrairement à un simple PUT
+  // sur stockUses, on sait toujours "quelle opération a fait bouger le stock").
+  app.post("/api/products/:id/restock", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("products").select("*").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const prod = toCamelCase<{ businessId: number; stockUses: number }>(rows[0]);
+      const access = await loadAccess(req, res, prod.businessId);
+      if (!access) return;
+      const parsed = restockSchema.safeParse(req.body);
+      if (!parsed.success) return handleZodError(res, parsed.error);
+      const newStock = Math.max(0, (prod.stockUses || 0) + parsed.data.delta);
+      const result = unwrap(await supabase.from("products").update({ stock_uses: newStock }).eq("id", parseInt(req.params.id)).select().single());
+      unwrap(await supabase.from("stock_movements").insert({
+        business_id: prod.businessId, product_id: parseInt(req.params.id),
+        delta: parsed.data.delta, reason: "Réapprovisionnement", created_by: req.user!.uid,
+      }));
+      res.json(toCamelCase(result));
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Historique des mouvements d'un produit (entrées réappro + sorties ventes).
+  app.get("/api/products/:id/movements", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const rows = unwrap(await supabase.from("products").select("business_id").eq("id", parseInt(req.params.id)).limit(1));
+      if (!rows || rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const access = await loadAccess(req, res, rows[0].business_id);
+      if (!access) return;
+      const movements = unwrap(
+        await supabase.from("stock_movements").select("*").eq("product_id", parseInt(req.params.id)).order("created_at", { ascending: false }).limit(30)
+      );
+      res.json(toCamelCaseArray(movements || []));
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
@@ -1560,8 +1610,8 @@ export function createApiApp() {
     }
   });
 
-  // Liens prestation <-> produit (config dans l'onglet Inventaire, admin only)
-  app.get("/api/businesses/:id/service-products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  // Liens prestation <-> produit (config dans l'onglet Inventaire, staff + admin)
+  app.get("/api/businesses/:id/service-products", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const businessId = parseInt(req.params.id);
       const productIds = (unwrap(await supabase.from("products").select("id").eq("business_id", businessId)) || []).map((p: any) => p.id);
@@ -1579,7 +1629,7 @@ export function createApiApp() {
     usesPerPrestation: z.coerce.number().int().min(1).max(1000).optional(),
   });
 
-  app.post("/api/businesses/:id/service-products", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/businesses/:id/service-products", requireAuth, requireOwnedBusiness, async (req: AuthRequest, res) => {
     try {
       const parsed = linkSchema.safeParse(req.body);
       if (!parsed.success) return handleZodError(res, parsed.error);

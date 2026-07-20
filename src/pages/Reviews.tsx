@@ -87,6 +87,7 @@ export default function Reviews() {
                       {[1, 2, 3, 4, 5].map(n => <Star key={n} className={`h-3.5 w-3.5 ${n <= r.rating ? "fill-amber-400 text-amber-400" : "text-gray-200"}`} />)}
                     </div>
                     <span className="text-sm font-semibold text-gray-900">{r.customerName || "Client anonyme"}</span>
+                    {r.customerPhone && <span className="text-xs text-gray-400 font-mono">· {r.customerPhone}</span>}
                   </div>
                   <span className="text-xs text-gray-400">{fmtDate(r.createdAt)}</span>
                 </div>

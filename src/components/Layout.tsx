@@ -43,7 +43,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: "Fidélité", href: "/programs", icon: CreditCard, adminOnly: false },
     { name: "Scanner", href: "/scanner", icon: ScanLine, adminOnly: false },
     { name: "Comptabilité", href: "/accounting", icon: Wallet, adminOnly: false },
-    { name: "Inventaire", href: "/inventory", icon: Boxes, adminOnly: true },
+    { name: "Inventaire", href: "/inventory", icon: Boxes, adminOnly: false },
     { name: "Avis clients", href: "/reviews", icon: Star, adminOnly: true },
     { name: "Personnel", href: "/personnel", icon: Shield, adminOnly: true },
     { name: "Rapports", href: "/reports", icon: BarChart3, adminOnly: true },

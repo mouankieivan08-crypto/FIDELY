@@ -2,31 +2,40 @@ import React, { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 import { useAuth } from "../contexts/AuthContext";
 import {
-  getBusiness, getProducts, createProduct, updateProduct, deleteProduct,
+  getBusiness, getProducts, createProduct, updateProduct, deleteProduct, restockProduct, getProductMovements,
   getServices, getServiceProducts, linkServiceProduct, unlinkServiceProduct,
-  Product, ServiceProduct,
+  Product, ServiceProduct, StockMovement,
 } from "../services/db";
-import { Plus, Package, X, Trash2, Pencil, AlertTriangle, Boxes, Link2, Lock } from "lucide-react";
+import { Plus, Package, X, Trash2, Pencil, AlertTriangle, Boxes, Link2, History } from "lucide-react";
 
 const fmt = (n: number) => (n ?? 0).toLocaleString("fr-FR");
 const unitsLeft = (p: Product) => Math.floor((p.stockUses || 0) / (p.usesPerUnit || 1));
 const isLow = (p: Product) => (p.lowStockUses || 0) > 0 && (p.stockUses || 0) <= (p.lowStockUses || 0);
 
+// Inventaire polyvalent : pas limité aux produits de salon (teintures, vernis...),
+// fonctionne aussi pour des boissons, du matériel, tout consommable. La catégorie est
+// libre pour rester adaptable, mais l'affichage regroupe/filtre par catégorie pour
+// garder de la cohérence quand la liste grossit.
 export default function Inventory() {
   const { user } = useAuth();
   const [businessId, setBusinessId] = useState<number | null>(null);
   const [role, setRole] = useState("admin");
+  const isAdmin = role === "admin";
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [links, setLinks] = useState<ServiceProduct[]>([]);
+  const [activeCategory, setActiveCategory] = useState("");
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [form, setForm] = useState({ name: "", category: "", unitLabel: "boîte", usesPerUnit: "1", stockUnits: "0", lowStockUnits: "0" });
+  const [form, setForm] = useState({ name: "", category: "", unitLabel: "unité", usesPerUnit: "1", stockUnits: "0", lowStockUnits: "0" });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null); // produit dont on gère les liens
+  const [historyFor, setHistoryFor] = useState<number | null>(null);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [movementsLoading, setMovementsLoading] = useState(false);
 
   useEffect(() => { if (user) fetchData(); }, [user]);
 
@@ -36,7 +45,6 @@ export default function Inventory() {
       if (rest) {
         setBusinessId(rest.id);
         if (rest.role) setRole(rest.role);
-        if (rest.role !== "admin") { setLoading(false); return; }
         const [prods, svcs, lnks] = await Promise.all([
           getProducts(rest.id).catch(() => []), getServices(rest.id).catch(() => []), getServiceProducts(rest.id).catch(() => []),
         ]);
@@ -47,16 +55,22 @@ export default function Inventory() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
+  const categories = useMemo(() => Array.from(new Set(products.map(p => p.category).filter(Boolean))) as string[], [products]);
+  const filteredProducts = useMemo(
+    () => activeCategory ? products.filter(p => p.category === activeCategory) : products,
+    [products, activeCategory]
+  );
+
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: "", category: "", unitLabel: "boîte", usesPerUnit: "1", stockUnits: "0", lowStockUnits: "0" });
+    setForm({ name: "", category: activeCategory || "", unitLabel: "unité", usesPerUnit: "1", stockUnits: "0", lowStockUnits: "0" });
     setFormError("");
     setShowForm(true);
   };
   const openEdit = (p: Product) => {
     setEditing(p);
     setForm({
-      name: p.name, category: p.category || "", unitLabel: p.unitLabel || "boîte",
+      name: p.name, category: p.category || "", unitLabel: p.unitLabel || "unité",
       usesPerUnit: String(p.usesPerUnit || 1),
       stockUnits: String(unitsLeft(p)),
       lowStockUnits: String(Math.floor((p.lowStockUses || 0) / (p.usesPerUnit || 1))),
@@ -94,8 +108,9 @@ export default function Inventory() {
 
   const handleRestock = async (p: Product, units: number) => {
     try {
-      const updated = await updateProduct(p.id, { stockUses: (p.stockUses || 0) + units * (p.usesPerUnit || 1) });
+      const updated = await restockProduct(p.id, units * (p.usesPerUnit || 1));
       setProducts(prev => prev.map(x => x.id === p.id ? updated : x));
+      if (historyFor === p.id) loadMovements(p.id);
     } catch (e) { console.error(e); }
   };
 
@@ -106,6 +121,19 @@ export default function Inventory() {
       setProducts(prev => prev.filter(x => x.id !== p.id));
       setLinks(prev => prev.filter(l => l.productId !== p.id));
     } catch (e) { console.error(e); }
+  };
+
+  const loadMovements = async (productId: number) => {
+    setMovementsLoading(true);
+    try { setMovements(await getProductMovements(productId)); }
+    catch { setMovements([]); }
+    finally { setMovementsLoading(false); }
+  };
+  const toggleHistory = (productId: number) => {
+    if (historyFor === productId) { setHistoryFor(null); return; }
+    setHistoryFor(productId);
+    setExpanded(null);
+    loadMovements(productId);
   };
 
   // --- Liens prestation <-> produit ---
@@ -133,29 +161,32 @@ export default function Inventory() {
 
   if (loading) return <Layout><div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" /></div></Layout>;
 
-  if (role !== "admin") {
-    return (
-      <Layout>
-        <div className="max-w-md mx-auto mt-16 bg-white p-8 rounded-2xl shadow-sm border border-gray-100 text-center">
-          <Lock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-          <h2 className="text-lg font-bold text-gray-900">Accès réservé</h2>
-          <p className="text-gray-500 mt-1">L'inventaire est réservé aux administrateurs.</p>
-        </div>
-      </Layout>
-    );
-  }
-
   return (
     <Layout>
       <div className="mb-6 flex flex-col sm:flex-row justify-between sm:items-end gap-3">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Inventaire</h1>
-          <p className="text-sm text-gray-500 mt-1">Stocks des produits (teintures, vernis, consommables...) — décomptés automatiquement à chaque prestation liée</p>
+          <p className="text-sm text-gray-500 mt-1">Tous vos stocks (produits de salon, boissons, consommables...) — décomptés automatiquement à chaque prestation liée</p>
         </div>
         <button onClick={openCreate} className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium shadow-sm">
           <Plus className="h-4 w-4 mr-2" />Nouveau produit
         </button>
       </div>
+
+      {categories.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-4">
+          <button onClick={() => setActiveCategory("")}
+            className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap ${activeCategory === "" ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 text-gray-600"}`}>
+            Toutes
+          </button>
+          {categories.map(c => (
+            <button key={c} onClick={() => setActiveCategory(c)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap ${activeCategory === c ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 text-gray-600"}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
 
       {lowCount > 0 && (
         <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm flex items-center">
@@ -164,7 +195,7 @@ export default function Inventory() {
         </div>
       )}
 
-      {products.length === 0 ? (
+      {filteredProducts.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-100 p-8 text-center">
           <Boxes className="h-12 w-12 text-gray-300 mx-auto mb-3" />
           <h3 className="text-lg font-medium text-gray-900">Aucun produit</h3>
@@ -172,7 +203,7 @@ export default function Inventory() {
         </div>
       ) : (
         <div className="space-y-3">
-          {products.map(p => {
+          {filteredProducts.map(p => {
             const low = isLow(p);
             const remainder = (p.stockUses || 0) % (p.usesPerUnit || 1);
             return (
@@ -194,13 +225,39 @@ export default function Inventory() {
                   <div className="flex items-center gap-1">
                     <button onClick={() => handleRestock(p, 1)} title={`+1 ${p.unitLabel}`} className="px-2.5 py-1.5 bg-green-50 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100">+1</button>
                     <button onClick={() => handleRestock(p, 5)} title={`+5 ${p.unitLabel}s`} className="px-2.5 py-1.5 bg-green-50 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100">+5</button>
-                    <button onClick={() => setExpanded(expanded === p.id ? null : p.id)} title="Prestations liées" className={`px-2.5 py-1.5 rounded-lg text-sm font-medium flex items-center ${expanded === p.id ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                    <button onClick={() => toggleHistory(p.id)} title="Historique des mouvements" className={`px-2.5 py-1.5 rounded-lg text-sm font-medium flex items-center ${historyFor === p.id ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                      <History className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { setExpanded(expanded === p.id ? null : p.id); setHistoryFor(null); }} title="Prestations liées" className={`px-2.5 py-1.5 rounded-lg text-sm font-medium flex items-center ${expanded === p.id ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
                       <Link2 className="h-4 w-4 mr-1" />{linksFor(p.id).length}
                     </button>
                     <button onClick={() => openEdit(p)} title="Modifier" className="p-2 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
-                    <button onClick={() => handleDelete(p)} title="Supprimer" className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+                    {isAdmin && <button onClick={() => handleDelete(p)} title="Supprimer" className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>}
                   </div>
                 </div>
+
+                {historyFor === p.id && (
+                  <div className="border-t border-gray-100 bg-gray-50 p-4">
+                    <p className="text-sm font-semibold text-gray-800 mb-2">Historique des mouvements</p>
+                    {movementsLoading ? (
+                      <p className="text-sm text-gray-400">Chargement...</p>
+                    ) : movements.length === 0 ? (
+                      <p className="text-sm text-gray-400">Aucun mouvement pour ce produit.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {movements.map(m => (
+                          <div key={m.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-sm border border-gray-100">
+                            <span className="text-gray-700">{m.reason}</span>
+                            <span className="flex items-center gap-3">
+                              <span className={`font-semibold ${m.delta > 0 ? "text-green-600" : "text-red-500"}`}>{m.delta > 0 ? "+" : ""}{m.delta}</span>
+                              <span className="text-xs text-gray-400">{new Date(m.createdAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {expanded === p.id && (
                   <div className="border-t border-gray-100 bg-gray-50 p-4">
@@ -248,22 +305,23 @@ export default function Inventory() {
               {formError && <p className="text-sm text-red-600">{formError}</p>}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom du produit</label>
-                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Teinture noire, Vernis rouge..." className="w-full border-gray-200 rounded-lg text-sm" />
+                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Teinture noire, Coca-Cola, Gants..." className="w-full border-gray-200 rounded-lg text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Catégorie</label>
-                  <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Teinture, Vernis..." className="w-full border-gray-200 rounded-lg text-sm" />
+                  <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Teinture, Boissons, Consommable..." list="inventory-categories" className="w-full border-gray-200 rounded-lg text-sm" />
+                  <datalist id="inventory-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Unité</label>
-                  <input value={form.unitLabel} onChange={e => setForm({ ...form, unitLabel: e.target.value })} placeholder="boîte, flacon..." className="w-full border-gray-200 rounded-lg text-sm" />
+                  <input value={form.unitLabel} onChange={e => setForm({ ...form, unitLabel: e.target.value })} placeholder="boîte, flacon, canette..." className="w-full border-gray-200 rounded-lg text-sm" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Utilisations par {form.unitLabel || "unité"}</label>
                 <input type="number" min="1" value={form.usesPerUnit} onChange={e => setForm({ ...form, usesPerUnit: e.target.value })} className="w-full border-gray-200 rounded-lg text-sm" />
-                <p className="text-[11px] text-gray-400 mt-1">Ex : 1 {form.unitLabel || "unité"} de teinture = 6 utilisations. Mettez 1 si l'unité se consomme entièrement à chaque fois.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Ex : 1 boîte de teinture = 6 utilisations. Mettez 1 pour un produit qui se consomme entièrement à chaque fois (ex: une canette).</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
