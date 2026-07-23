@@ -458,15 +458,20 @@ export function createApiApp() {
   };
 
   const validateVisitSchema = z.object({
+    // employeeId obligatoire sur chaque ligne : traçabilité par prestataire non
+    // négociable (demande explicite du client — aucune vente ne doit pouvoir être
+    // enregistrée sans savoir qui a réalisé la prestation).
     items: z.array(z.object({
       serviceId: z.coerce.number().int().positive().optional(),
       variantId: z.coerce.number().int().positive().optional(),
-      employeeId: z.coerce.number().int().positive().optional(),
+      employeeId: z.coerce.number().int().positive({ message: "Chaque prestation doit être liée à l'employé qui l'a réalisée." }),
       offered: z.boolean().optional(), // prestation offerte au client (montant et points à 0)
     })).min(1).optional(),
     tip: z.coerce.number().int().min(0).optional(),
     discount: z.coerce.number().int().min(0).optional(),
-    // Legacy single-service shape, still supported
+    // Legacy single-service shape, still supported (employeeId validé plus bas, une
+    // fois "items" résolu — ce champ doit rester optionnel ici pour ne pas casser
+    // le format items[], qui ne l'utilise pas).
     serviceId: z.coerce.number().int().positive().optional(),
     variantId: z.coerce.number().int().positive().optional(),
     employeeId: z.coerce.number().int().positive().optional(),
@@ -480,6 +485,12 @@ export function createApiApp() {
       const items = parsed.data.items && parsed.data.items.length > 0
         ? parsed.data.items
         : [{ serviceId: parsed.data.serviceId, variantId: parsed.data.variantId, employeeId: parsed.data.employeeId }];
+
+      // Couvre aussi l'ancien format à plat (une seule prestation, hors items[]) : le
+      // schéma ne peut pas l'exiger sans casser le format items[], donc on le vérifie ici.
+      if (items.some((it) => !it.employeeId)) {
+        return res.status(400).json({ error: "Chaque prestation doit être liée à l'employé qui l'a réalisée." });
+      }
 
       const custs = unwrap(await supabase.from("customers").select("*").eq("id", customerId).limit(1));
       if (!custs || custs.length === 0) return res.status(404).json({ error: "Customer not found" });

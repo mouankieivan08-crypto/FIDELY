@@ -234,6 +234,9 @@ export default function Sale() {
   const tipFcfa = parseInt(tip) || 0;
   const total = Math.max(0, subtotal - discountFcfa) + tipFcfa;
   const itemCount = cart.reduce((s, l) => s + l.qty, 0);
+  // Traçabilité obligatoire : chaque ligne doit être liée à l'employé qui réalise la
+  // prestation (aucune vente ne peut être enregistrée sans ça).
+  const missingEmployee = cart.some(l => !l.employeeId);
 
   const filteredServices = services.filter(s =>
     (!activeCategory || s.category === activeCategory) &&
@@ -247,6 +250,7 @@ export default function Sale() {
 
   const handleValidate = async () => {
     if (!selectedClient || cart.length === 0 || saving) return;
+    if (missingEmployee) { setError("Sélectionnez l'employé pour chaque prestation avant de valider."); return; }
     setSaving(true);
     setError("");
     try {
@@ -503,7 +507,8 @@ export default function Sale() {
 
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 {!selectedClient && <p className="text-xs text-amber-600">Sélectionnez d'abord un client.</p>}
-                <button onClick={() => setShowRecap(true)} disabled={!selectedClient || cart.length === 0}
+                {selectedClient && missingEmployee && <p className="text-xs text-amber-600">Sélectionnez l'employé sur chaque prestation (« Qui réalise ? ») avant de valider.</p>}
+                <button onClick={() => setShowRecap(true)} disabled={!selectedClient || cart.length === 0 || missingEmployee}
                   className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center">
                   <Wallet className="h-5 w-5 mr-2" />Valider la vente
                 </button>
@@ -529,7 +534,10 @@ export default function Sale() {
               <div className="space-y-1.5">
                 {cart.map(l => (
                   <div key={l.key} className="flex justify-between text-sm">
-                    <span className="text-gray-700">{l.name} <span className="text-gray-400">×{l.qty}</span>{l.offered && <span className="ml-1 text-amber-600 text-xs font-medium">(offert)</span>}</span>
+                    <span className="text-gray-700">
+                      {l.name} <span className="text-gray-400">×{l.qty}</span>{l.offered && <span className="ml-1 text-amber-600 text-xs font-medium">(offert)</span>}
+                      <span className="block text-[11px] text-gray-400">{employees.find((e: any) => String(e.id) === l.employeeId)?.name || "—"}</span>
+                    </span>
                     <span className={`font-medium ${l.offered ? "text-amber-600 line-through" : "text-gray-900"}`}>{fmt(l.unitPrice * l.qty)}</span>
                   </div>
                 ))}
@@ -544,7 +552,7 @@ export default function Sale() {
               {error && <p className="text-sm text-red-600">{error}</p>}
               <div className="flex gap-2">
                 <button onClick={() => setShowRecap(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200">Modifier</button>
-                <button onClick={handleValidate} disabled={saving} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50">
+                <button onClick={handleValidate} disabled={saving || missingEmployee} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50">
                   {saving ? "Enregistrement..." : "Confirmer la vente"}
                 </button>
               </div>

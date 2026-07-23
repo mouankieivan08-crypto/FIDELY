@@ -163,12 +163,15 @@ export default function Customers() {
   const tipCents = (parseInt(tip) || 0) * 100;
   const discountCents = (parseInt(discount) || 0) * 100;
   const cartTotal = Math.max(0, cartSubtotal - discountCents) + tipCents;
+  // Traçabilité obligatoire : chaque prestation doit être liée à l'employé qui l'a réalisée.
+  const missingEmployee = cartLines.some(l => !l.employeeId);
 
   const handleValidate = async () => {
     if (!selected || cartLines.length === 0 || saving) {
       if (cartLines.length === 0) setDetailError("Ajoutez au moins une prestation.");
       return;
     }
+    if (missingEmployee) { setDetailError("Sélectionnez l'employé pour chaque prestation avant de valider."); return; }
     setSaving(true);
     setDetailError("");
     setValidateMsg("");
@@ -413,8 +416,10 @@ export default function Customers() {
                                 {variants.map(v => <option key={v.id} value={v.id}>{v.name} — {fmt(v.price / 100)} FCFA</option>)}
                               </select>
                             )}
-                            <select value={row.employeeId} onChange={e => updateCartRow(i, { employeeId: e.target.value })} className="text-sm border-gray-200 rounded-lg">
-                              <option value="">Employé (optionnel)</option>
+                            <select value={row.employeeId} onChange={e => updateCartRow(i, { employeeId: e.target.value })}
+                              title="Employé qui réalise la prestation"
+                              className={`text-sm rounded-lg ${row.employeeId ? "border-gray-200" : "border-amber-300 bg-amber-50 text-amber-800"}`}>
+                              <option value="">Qui réalise ?</option>
                               {employeesList.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
                             </select>
                             <select value={row.qty} onChange={e => updateCartRow(i, { qty: parseInt(e.target.value) })} title="Nombre de personnes / quantité" className="text-sm border-gray-200 rounded-lg w-16">
@@ -450,9 +455,10 @@ export default function Customers() {
                         </div>
                       </>
                     )}
+                    {missingEmployee && cartLines.length > 0 && <p className="text-xs text-amber-600 mt-2">Sélectionnez l'employé sur chaque prestation (« Qui réalise ? ») avant de valider.</p>}
                     {detailError && <p className="text-sm text-red-600 mt-2">{detailError}</p>}
                     {validateMsg && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2 mt-2 flex items-start"><CheckCircle className="h-4 w-4 mr-1.5 mt-0.5 flex-shrink-0" />{validateMsg}</p>}
-                    <button onClick={handleValidate} disabled={saving || cartLines.length === 0}
+                    <button onClick={handleValidate} disabled={saving || cartLines.length === 0 || missingEmployee}
                       className="mt-3 w-full py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50">
                       {saving ? "Enregistrement..." : "Enregistrer la prestation"}
                     </button>
