@@ -460,11 +460,14 @@ export function createApiApp() {
   const validateVisitSchema = z.object({
     // employeeId obligatoire sur chaque ligne : traçabilité par prestataire non
     // négociable (demande explicite du client — aucune vente ne doit pouvoir être
-    // enregistrée sans savoir qui a réalisé la prestation).
+    // enregistrée sans savoir qui a réalisé la prestation). Volontairement optionnel
+    // ici (zod émet un message technique confus sur une valeur manquante coercée) :
+    // la présence réelle est vérifiée juste après, avec un message clair pour l'un
+    // et l'autre format (items[] ou l'ancien format à plat).
     items: z.array(z.object({
       serviceId: z.coerce.number().int().positive().optional(),
       variantId: z.coerce.number().int().positive().optional(),
-      employeeId: z.coerce.number().int().positive({ message: "Chaque prestation doit être liée à l'employé qui l'a réalisée." }),
+      employeeId: z.coerce.number().int().positive().optional(),
       offered: z.boolean().optional(), // prestation offerte au client (montant et points à 0)
     })).min(1).optional(),
     tip: z.coerce.number().int().min(0).optional(),
